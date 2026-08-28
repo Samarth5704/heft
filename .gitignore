@@ -2,3 +2,6 @@
 .DS_Store
 Thumbs.db
 *.log
+
+# Editor/agent local config
+.claude/

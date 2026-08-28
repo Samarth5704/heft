@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Heft — an expense manager where money has mass.">
+<meta name="color-scheme" content="light dark">
+<title>Heft</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<link rel="stylesheet" href="css/reset.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/ledger.css">
+<link rel="stylesheet" href="css/charts.css">
+<link rel="stylesheet" href="css/budgets.css">
+<link rel="stylesheet" href="css/forms.css">
+</head>
+<body>
+
+<!-- Icon sprite. Hand-written, no icon font, no emoji. -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="i-edit" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13.4 3.6a1.7 1.7 0 0 1 2.4 2.4L7.6 14.2 4 15.2l1-3.6z"/>
+      <path d="M12.2 4.8 14.6 7.2"/>
+    </symbol>
+    <symbol id="i-delete" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.5 5.8h11"/>
+      <path d="M8.1 5.8V4.4h3.8v1.4"/>
+      <path d="M6.1 5.8 6.8 16h6.4l.7-10.2"/>
+      <path d="M8.6 8.4v5M11.4 8.4v5"/>
+    </symbol>
+    <symbol id="i-undo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 6.5h6.8a4.2 4.2 0 0 1 0 8.4H6"/>
+      <path d="M6.6 3.6 3.7 6.5l2.9 2.9"/>
+    </symbol>
+    <symbol id="i-rise" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.2 10.4 9H1.6z" fill="currentColor"/></symbol>
+    <symbol id="i-fall" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 9.8 1.6 3h8.8z" fill="currentColor"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 6.5 10l5.5 5.5"/></symbol>
+    <symbol id="i-next" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5 13.5 10 8 15.5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8.8" cy="8.8" r="4.6"/><path d="m12.4 12.4 3.2 3.2"/></symbol>
+    <symbol id="i-close" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m5.5 5.5 9 9M14.5 5.5l-9 9"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="10" cy="10" r="3.4"/><path d="M10 2.6v1.8M10 15.6v1.8M17.4 10h-1.8M4.4 10H2.6M15.2 4.8l-1.3 1.3M6.1 13.9l-1.3 1.3M15.2 15.2l-1.3-1.3M6.1 6.1 4.8 4.8"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 4.6v10.8M4.6 10h10.8"/></symbol>
+    <symbol id="i-keys" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2.4" y="5.4" width="15.2" height="9.2" rx="1.4"/><path d="M5.6 8.4h.01M8.2 8.4h.01M10.8 8.4h.01M13.4 8.4h.01M6.6 11.6h6.8"/></symbol>
+    <symbol id="i-download" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.4v8.4"/><path d="m6.4 8.6 3.6 3.6 3.6-3.6"/><path d="M4 14.2v1.4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1.4"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.4V4"/><path d="m6.4 7.2 3.6-3.6 3.6 3.6"/><path d="M4 14.2v1.4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1.4"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 9.2V4.4a.8.8 0 0 1 .8-.8h4.8l7 7-5.6 5.6z"/><circle cx="6.9" cy="6.9" r="1.1"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11.6A6.6 6.6 0 0 1 8.4 4a6.6 6.6 0 1 0 7.6 7.6z"/></symbol>
+  </defs>
+</svg>
+
+<a class="skip-link" href="#ledger-region">Skip to the ledger</a>
+
+<div class="app">
+
+  <header class="masthead">
+    <div class="masthead-inner">
+      <h1 class="wordmark">Heft</h1>
+      <p class="tagline">Money has mass.</p>
+      <div class="masthead-actions">
+        <button type="button" class="btn btn-quiet" id="theme-button" aria-live="off">
+          <svg class="icon" aria-hidden="true"><use href="#i-sun"></use></svg>
+          <span id="theme-label">System</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <section class="quick-add" aria-labelledby="qa-heading">
+    <h2 class="visually-hidden" id="qa-heading">Quick add</h2>
+    <form id="qa-form" novalidate>
+      <div class="qa-line">
+        <span class="qa-prompt" aria-hidden="true">&rsaquo;</span>
+        <label class="visually-hidden" for="qa-input">
+          Add an expense in one line, for example 250 chai, or 1.2k rent yesterday
+        </label>
+        <input type="text" id="qa-input" name="entry" autocomplete="off"
+               spellcheck="false" autocapitalize="none"
+               placeholder="250 chai&#8195;·&#8195;1.2k rent&#8195;·&#8195;swiggy 480 yesterday"
+               aria-describedby="qa-live">
+        <button type="submit" class="btn btn-primary" id="qa-submit">
+          <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
+          Add
+        </button>
+      </div>
+      <!-- The visual parse. Its spoken twin is #qa-live, debounced, so the
+           field does not narrate a re-parse on every keystroke. -->
+      <div class="qa-preview" id="qa-preview" data-state="empty" aria-hidden="true"></div>
+      <p class="qa-notice" id="qa-notice" hidden></p>
+    </form>
+
+    <div class="qa-tools">
+      <button type="button" class="btn btn-quiet" id="add-details">
+        <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
+        Add with details
+      </button>
+      <button type="button" class="btn btn-quiet" id="help-button">
+        <svg class="icon" aria-hidden="true"><use href="#i-keys"></use></svg>
+        Shortcuts
+      </button>
+    </div>
+    <p class="visually-hidden" id="qa-live" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- Storage failures are visible, never silent. -->
+  <div class="banner" id="save-banner" role="alert" hidden>
+    <p id="save-banner-text"></p>
+    <button type="button" class="btn btn-quiet" id="save-banner-dismiss">Dismiss</button>
+  </div>
+
+  <div class="month-bar" id="month-bar">
+    <div class="month-bar-inner">
+      <div class="month-nav">
+        <button type="button" class="icon-btn" id="month-prev" aria-label="Previous month">
+          <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
+        </button>
+        <h2 class="month-name" id="month-name">August 2025</h2>
+        <button type="button" class="icon-btn" id="month-next" aria-label="Next month">
+          <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
+        </button>
+      </div>
+
+      <div class="month-figures">
+        <p class="month-total num" id="month-total"><span class="sym">₹</span><span id="month-total-digits">0</span></p>
+        <p class="month-delta" id="month-delta"></p>
+      </div>
+    </div>
+  </div>
+
+  <main class="main">
+    <form class="filters" id="filters" role="search" aria-label="Filter expenses">
+      <div class="filter-row">
+        <div class="field field-search">
+          <label class="field-label" for="filter-query">Search notes</label>
+          <div class="input-wrap">
+            <svg class="icon input-icon" aria-hidden="true"><use href="#i-search"></use></svg>
+            <input type="search" id="filter-query" name="q" placeholder="chai, swiggy, rent…" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="filter-scope">Range</label>
+          <select id="filter-scope" name="scope">
+            <option value="month">This month</option>
+            <option value="all">All months</option>
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="chipset" id="filter-categories">
+        <legend class="field-label">Categories</legend>
+        <div class="chips" id="category-chips"></div>
+      </fieldset>
+
+      <fieldset class="chipset" id="filter-methods">
+        <legend class="field-label">Payment</legend>
+        <div class="chips">
+          <button type="button" class="chip" data-method="cash" aria-pressed="false">Cash</button>
+          <button type="button" class="chip" data-method="upi" aria-pressed="false">UPI</button>
+          <button type="button" class="chip" data-method="card" aria-pressed="false">Card</button>
+        </div>
+      </fieldset>
+
+      <div class="filter-summary" id="filter-summary" hidden>
+        <p id="filter-summary-text"></p>
+        <button type="button" class="btn btn-quiet" id="clear-filters">Clear filters</button>
+      </div>
+    </form>
+
+    <section class="budgets" id="budgets" aria-labelledby="budgets-heading">
+      <div class="budgets-head">
+        <h2 id="budgets-heading">Budgets</h2>
+        <div class="budgets-meta">
+          <p class="budgets-scope" id="budgets-scope"></p>
+          <button type="button" class="btn btn-quiet" data-action="edit-budgets">
+            <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
+            Edit budgets
+          </button>
+        </div>
+      </div>
+
+      <ul class="budget-list" id="budget-list" role="list"></ul>
+
+      <div class="budgets-empty" id="budgets-empty" hidden>
+        <svg class="budgets-empty-art" viewBox="0 0 160 90" role="img" aria-labelledby="budgets-empty-art-title">
+          <title id="budgets-empty-art-title">An empty measuring jug beside a ruled line</title>
+          <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <path d="M28 22h58l-6 52a8 8 0 0 1-8 7H42a8 8 0 0 1-8-7z" stroke-width="1.6" opacity=".8"/>
+            <path d="M86 34h12a10 10 0 0 1 0 20h-9" stroke-width="1.6" opacity=".8"/>
+            <path d="M36 44h44M38 58h40" stroke-width="1" opacity=".35"/>
+            <path d="M112 26h34M112 44h34M112 62h22" stroke-width="1" opacity=".25"/>
+          </g>
+        </svg>
+        <h3>No budgets set</h3>
+        <p>
+          Give a category a monthly budget and Heft will track it against the calendar,
+          not just the total — how far through the month you are, and where that puts you.
+        </p>
+        <button type="button" class="btn btn-primary" data-action="edit-budgets">Set a budget</button>
+      </div>
+    </section>
+
+    <section class="analysis" id="analysis" aria-labelledby="analysis-heading">
+      <div class="analysis-head">
+        <h2 id="analysis-heading">Analysis</h2>
+        <p class="analysis-scope" id="analysis-scope"></p>
+      </div>
+      <div id="analysis-panels"></div>
+    </section>
+
+    <section id="ledger-region" class="ledger-region" aria-labelledby="ledger-heading" tabindex="-1">
+      <h2 class="visually-hidden" id="ledger-heading">Expenses</h2>
+      <p class="ledger-count num" id="ledger-count"></p>
+      <ol class="ledger" id="ledger" role="list"></ol>
+
+      <!-- Empty states: drawn and written, and distinct from each other. -->
+      <div class="empty" id="empty-fresh" hidden>
+        <svg class="empty-art" viewBox="0 0 220 150" role="img" aria-labelledby="empty-fresh-art-title">
+          <title id="empty-fresh-art-title">An unused ledger page with ruled lines and a pen resting on it</title>
+          <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <rect x="26" y="14" width="150" height="122" stroke-width="1.4" opacity=".55"/>
+            <path d="M44 14v122" stroke-width="1" opacity=".35"/>
+            <g stroke-width="1" opacity=".28">
+              <path d="M56 40h104M56 58h104M56 76h104M56 94h104M56 112h84"/>
+            </g>
+            <path d="M56 28h58" stroke-width="2.2" opacity=".5"/>
+            <path d="M150 122c14-16 28-38 38-64l10 6c-12 26-26 48-40 62z" stroke-width="1.4" opacity=".8"/>
+            <path d="m188 58 10 6" stroke-width="1.4" opacity=".8"/>
+            <path d="m148 124 2-10 8 5z" stroke-width="1.4" opacity=".8"/>
+          </g>
+        </svg>
+        <h3>Nothing weighed yet</h3>
+        <p>Add your first expense and the ledger starts taking shape — small amounts sit light, big ones sit heavy.</p>
+        <div class="empty-actions">
+          <button type="button" class="btn btn-primary" id="load-sample">Load sample data</button>
+        </div>
+        <p class="empty-fine">Three months of plausible spending, generated locally. You can clear it any time.</p>
+      </div>
+
+      <div class="empty" id="empty-filtered" hidden>
+        <svg class="empty-art" viewBox="0 0 220 150" role="img" aria-labelledby="empty-filtered-art-title">
+          <title id="empty-filtered-art-title">A magnifying glass over ruled lines, finding nothing</title>
+          <g fill="none" stroke="currentColor" stroke-linecap="round">
+            <g stroke-width="1" opacity=".25">
+              <path d="M24 44h172M24 66h172M24 88h172M24 110h132"/>
+            </g>
+            <circle cx="96" cy="74" r="34" stroke-width="1.8" opacity=".75"/>
+            <path d="m121 99 24 24" stroke-width="2.6" opacity=".75"/>
+            <path d="M84 74h24" stroke-width="1.6" opacity=".45"/>
+          </g>
+        </svg>
+        <h3>No expenses match</h3>
+        <p id="empty-filtered-detail">Nothing in this month matches the filters you have on.</p>
+        <div class="empty-actions">
+          <button type="button" class="btn btn-primary" id="empty-clear-filters">Clear filters</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <section class="data-section" id="data" aria-labelledby="data-heading">
+    <h2 id="data-heading">Your data</h2>
+    <p class="data-lede">
+      Everything you have entered lives in this browser and nowhere else. There
+      is no account and no server, so a cleared browser is a lost ledger —
+      export a copy somewhere you trust.
+    </p>
+    <div class="data-actions">
+      <button type="button" class="btn btn-quiet" id="export-json">
+        <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+        Export JSON
+      </button>
+      <button type="button" class="btn btn-quiet" id="import-open">
+        <svg class="icon" aria-hidden="true"><use href="#i-upload"></use></svg>
+        Import a file
+      </button>
+      <button type="button" class="btn btn-quiet" data-action="edit-categories">
+        <svg class="icon" aria-hidden="true"><use href="#i-tag"></use></svg>
+        Categories
+      </button>
+      <button type="button" class="btn btn-danger-quiet" id="delete-all">
+        <svg class="icon" aria-hidden="true"><use href="#i-delete"></use></svg>
+        Delete all data
+      </button>
+    </div>
+    <p class="data-meta num" id="data-meta"></p>
+  </section>
+
+  <footer class="colophon">
+    <p>Heft · money has mass · <span class="num" id="footer-count">0</span> expenses on this device</p>
+  </footer>
+</div>
+
+<!-- Undo. Announced politely, and focusable well before it times out. -->
+<div class="undo-dock" id="undo-dock" hidden>
+  <div class="undo-toast" role="status">
+    <p class="undo-text" id="undo-text"></p>
+    <button type="button" class="btn btn-undo" id="undo-button">
+      <svg class="icon" aria-hidden="true"><use href="#i-undo"></use></svg>
+      Undo
+    </button>
+    <span class="undo-progress" aria-hidden="true"><span id="undo-bar"></span></span>
+  </div>
+</div>
+
+<!-- The single announcer for the whole app. -->
+<p class="visually-hidden" id="announcer" role="status" aria-live="polite"></p>
+
+<dialog class="dialog dialog-wide" id="import-dialog" aria-labelledby="import-title">
+  <form class="dialog-form" id="import-form" novalidate>
+    <header class="dialog-head">
+      <h2 id="import-title">Import a Heft file</h2>
+      <button type="button" class="icon-btn" id="import-close" aria-label="Close without importing">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+
+    <div class="dialog-body">
+      <div class="field">
+        <label class="field-label" for="import-file">Choose a file</label>
+        <input type="file" id="import-file" accept="application/json,.json">
+      </div>
+
+      <p class="form-error" id="import-error" role="alert"></p>
+
+      <!-- Nothing is applied until this preview has been read and a mode picked. -->
+      <div class="import-preview" id="import-preview" hidden></div>
+
+      <fieldset class="mode-choice">
+        <legend class="field-label">What should happen</legend>
+        <label class="mode-option">
+          <input type="radio" name="import-mode" value="merge" checked disabled>
+          <span>
+            <strong>Merge</strong>
+            Keep everything you have and add what is new. Anything already here is left alone.
+          </span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="import-mode" value="replace" disabled>
+          <span>
+            <strong>Replace</strong>
+            Throw away what is here and use the file instead. This cannot be undone.
+          </span>
+        </label>
+      </fieldset>
+    </div>
+
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-quiet" id="import-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="import-apply" disabled>Import</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="dialog dialog-wide" id="category-dialog" aria-labelledby="category-title">
+  <div class="dialog-form">
+    <header class="dialog-head">
+      <h2 id="category-title">Categories</h2>
+      <button type="button" class="icon-btn" id="category-close" aria-label="Close categories">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+
+    <div class="dialog-body">
+      <ul class="category-list" id="category-rows" role="list"></ul>
+
+      <form class="category-add" id="category-add-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="category-new-name">Add a category</label>
+          <input type="text" id="category-new-name" placeholder="Pets, Travel, Gifts…" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="category-new-colour">Colour</label>
+          <select id="category-new-colour"></select>
+        </div>
+        <button type="submit" class="btn btn-quiet">Add</button>
+      </form>
+      <p class="form-error" id="category-add-error" role="alert"></p>
+
+      <p class="budget-hint">
+        Removing a category always asks what to do with its expenses first —
+        they are never left pointing at something that no longer exists.
+        “Other” stays, because it is where anything unassigned lands.
+      </p>
+    </div>
+
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-primary" id="category-done">Done</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog class="dialog" id="danger-dialog" aria-labelledby="danger-title">
+  <form class="dialog-form" id="danger-form" novalidate>
+    <header class="dialog-head">
+      <h2 id="danger-title">Delete all data</h2>
+      <button type="button" class="icon-btn" id="danger-close" aria-label="Close without deleting">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="dialog-body">
+      <p class="danger-warning" id="danger-count"></p>
+      <p class="danger-note">
+        Your categories and budgets stay. Your expenses do not, and there is no
+        copy anywhere else. Export first if you might want them back.
+      </p>
+      <div class="field">
+        <label class="field-label" for="danger-input">Type DELETE to confirm</label>
+        <input type="text" id="danger-input" autocomplete="off" autocapitalize="characters"
+               spellcheck="false" aria-describedby="danger-count">
+      </div>
+    </div>
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-quiet" id="danger-cancel">Cancel</button>
+      <button type="submit" class="btn btn-danger" id="danger-confirm" disabled>Delete everything</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="budget-dialog" aria-labelledby="budget-title">
+  <form class="dialog-form" id="budget-form" novalidate>
+    <header class="dialog-head">
+      <h2 id="budget-title">Monthly budgets</h2>
+      <button type="button" class="icon-btn" id="budget-close" aria-label="Close without saving">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="dialog-body">
+      <div id="budget-fields"></div>
+      <p class="form-error" id="budget-form-error" role="alert"></p>
+      <p class="budget-hint" id="budget-hint">
+        Whole rupees, the same every month. Leave a category blank to leave it
+        untracked — that is different from a budget of zero, which means you
+        intend to spend nothing there.
+      </p>
+    </div>
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-quiet" id="budget-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save budgets</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="help-dialog" aria-labelledby="help-title">
+  <div class="dialog-form">
+    <header class="dialog-head">
+      <h2 id="help-title">Keyboard shortcuts</h2>
+      <button type="button" class="icon-btn" id="help-close" aria-label="Close shortcuts">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="dialog-body">
+      <dl class="shortcuts">
+        <dt><kbd>/</kbd></dt>
+        <dd>Jump to the quick-add line</dd>
+        <dt><kbd>Enter</kbd></dt>
+        <dd>Add the expense you have typed</dd>
+        <dt><kbd>Ctrl</kbd> <kbd>Enter</kbd></dt>
+        <dd>Open the full form, keeping what you typed</dd>
+        <dt><kbd>N</kbd></dt>
+        <dd>Add an expense with the full form</dd>
+        <dt><kbd>Ctrl</kbd> <kbd>Z</kbd></dt>
+        <dd>Undo the delete you just made</dd>
+        <dt><kbd>?</kbd></dt>
+        <dd>Open this list</dd>
+        <dt><kbd>Esc</kbd></dt>
+        <dd>Close a dialog without saving</dd>
+      </dl>
+
+      <h3 class="help-subhead">What the quick-add line understands</h3>
+      <dl class="syntax">
+        <dt><code>250 chai</code></dt>
+        <dd>Amount anywhere in the line</dd>
+        <dt><code>1.2k rent</code> · <code>1.5l deposit</code></dt>
+        <dd>Thousands and lakhs</dd>
+        <dt><code>swiggy 480 yesterday</code></dt>
+        <dd>today, yesterday, <code>23 jan</code>, <code>2/3</code></dd>
+        <dt><code>480 food</code></dt>
+        <dd>A category name, which is taken out of the note</dd>
+        <dt><code>uber 120</code></dt>
+        <dd>A known shop or service, which stays in the note</dd>
+      </dl>
+    </div>
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-primary" id="help-done">Done</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog class="dialog" id="expense-dialog" aria-labelledby="expense-dialog-title">
+  <form method="dialog" class="dialog-form" id="expense-form">
+    <header class="dialog-head">
+      <h2 id="expense-dialog-title">Edit expense</h2>
+      <button type="button" class="icon-btn" id="expense-cancel" aria-label="Close without saving">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+
+    <div class="dialog-body">
+      <div class="field">
+        <label class="field-label" for="f-amount">Amount</label>
+        <div class="input-wrap">
+          <span class="input-prefix" aria-hidden="true">₹</span>
+          <input type="text" id="f-amount" name="amount" inputmode="decimal" autocomplete="off"
+                 required aria-describedby="f-amount-error">
+        </div>
+        <p class="field-error" id="f-amount-error"></p>
+      </div>
+
+      <div class="field-pair">
+        <div class="field">
+          <label class="field-label" for="f-date">Date</label>
+          <input type="date" id="f-date" name="date" required aria-describedby="f-date-error">
+          <p class="field-error" id="f-date-error"></p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-category">Category</label>
+          <select id="f-category" name="categoryId"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="f-note">Note</label>
+        <input type="text" id="f-note" name="note" autocomplete="off" placeholder="Optional">
+      </div>
+
+      <div class="field">
+        <span class="field-label" id="f-method-label">Payment method</span>
+        <div class="chips" role="radiogroup" aria-labelledby="f-method-label" id="f-methods">
+          <button type="button" class="chip" data-method="" role="radio" aria-checked="true">Unrecorded</button>
+          <button type="button" class="chip" data-method="cash" role="radio" aria-checked="false">Cash</button>
+          <button type="button" class="chip" data-method="upi" role="radio" aria-checked="false">UPI</button>
+          <button type="button" class="chip" data-method="card" role="radio" aria-checked="false">Card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-quiet" id="expense-cancel-2">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="expense-save">Save changes</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- Row and day markup live here, not in JavaScript strings. -->
+<template id="tpl-budget">
+  <li class="budget-row">
+    <div class="budget-head">
+      <span class="budget-name">
+        <span class="cat-dot" aria-hidden="true"></span><span class="budget-label"></span>
+      </span>
+      <span class="budget-figures num"></span>
+    </div>
+    <!-- Decorative: spent, budget, percentage and pace are all text above and below. -->
+    <div class="budget-track" aria-hidden="true">
+      <span class="budget-fill"></span>
+      <span class="budget-pace-mark"></span>
+    </div>
+    <p class="budget-status"></p>
+  </li>
+</template>
+
+<template id="tpl-panel">
+  <figure class="panel">
+    <figcaption class="panel-head">
+      <h3 class="panel-title"></h3>
+      <p class="panel-summary"></p>
+    </figcaption>
+    <div class="panel-body"></div>
+    <!-- The same numbers as the chart, for anyone who cannot see it.
+         The wrapper carries visually-hidden, not the table: a table will not
+         shrink below its min-content width, so hiding it directly leaves the
+         page scrolling sideways. -->
+    <div class="visually-hidden panel-table-wrap">
+      <table class="panel-table">
+        <caption></caption>
+        <thead><tr></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </figure>
+</template>
+
+<template id="tpl-day">
+  <li class="day">
+    <h3 class="day-head">
+      <time class="day-date"></time>
+      <span class="day-total num"><span class="sym">₹</span><span class="day-total-digits"></span></span>
+    </h3>
+    <ul class="day-rows" role="list"></ul>
+  </li>
+</template>
+
+<template id="tpl-row">
+  <li class="row weighted">
+    <div class="row-body">
+      <p class="row-note"></p>
+      <p class="row-meta">
+        <span class="cat"><span class="cat-dot" aria-hidden="true"></span><span class="cat-name"></span></span>
+        <span class="row-method"></span>
+      </p>
+    </div>
+    <p class="row-amount num"><span class="sym" aria-hidden="true">₹</span><span class="row-digits"></span></p>
+    <div class="row-actions">
+      <button type="button" class="icon-btn row-edit">
+        <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
+      </button>
+      <button type="button" class="icon-btn row-delete">
+        <svg class="icon" aria-hidden="true"><use href="#i-delete"></use></svg>
+      </button>
+    </div>
+  </li>
+</template>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

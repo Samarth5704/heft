@@ -1,0 +1,4 @@
+# Nothing is built, so there is very little to ignore.
+.DS_Store
+Thumbs.db
+*.log

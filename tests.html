@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heft — test suite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #f6f3ec;
+    --ink: #14120e;
+    --ink-soft: #5e594f;
+    --ink-faint: #a8a294;
+    --rule: #ddd7c9;
+    --pass: #2f6b4f;
+    --fail: #8f2a2a;
+    --accent: #1f3f8f;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light; }
+  body {
+    margin: 0;
+    padding: clamp(1.5rem, 5vw, 4rem) clamp(1rem, 5vw, 3rem) 6rem;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15px/1.55 Inter, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 62rem; margin: 0 auto; }
+  h1 {
+    font: 600 clamp(2rem, 6vw, 3.25rem)/1 Fraunces, Georgia, serif;
+    margin: 0 0 .35rem;
+    letter-spacing: -0.02em;
+  }
+  .lede { color: var(--ink-soft); margin: 0 0 2rem; max-width: 46rem; }
+  .lede code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: .9em; }
+
+  .summary {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 1.25rem;
+    padding: 1.25rem 0 1.5rem; border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--rule); margin-bottom: 2.5rem;
+  }
+  .count { font: 600 clamp(2.5rem, 8vw, 4rem)/1 Fraunces, Georgia, serif; letter-spacing: -.03em; }
+  .count.is-fail { color: var(--fail); }
+  .count.is-pass { color: var(--pass); }
+  .summary-meta { color: var(--ink-soft); }
+  .summary-meta strong { color: var(--ink); font-weight: 500; }
+  .bar { flex: 1 1 12rem; height: 10px; min-width: 8rem; background: var(--rule); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--pass); }
+
+  section { margin: 0 0 2.25rem; }
+  h2 {
+    font: 500 .8rem/1 Inter, sans-serif; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--ink-soft);
+    margin: 0 0 .75rem; padding-bottom: .5rem; border-bottom: 1px solid var(--rule);
+    display: flex; justify-content: space-between; gap: 1rem;
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: grid; grid-template-columns: 1.4rem 1fr; gap: .6rem;
+    padding: .3rem 0; border-bottom: 1px solid color-mix(in oklab, var(--rule) 55%, transparent);
+  }
+  li[data-pass="false"] { background: color-mix(in oklab, var(--fail) 7%, transparent); }
+  .mark { font-family: 'JetBrains Mono', monospace; color: var(--pass); }
+  li[data-pass="false"] .mark { color: var(--fail); }
+  .label { color: var(--ink); }
+  li[data-pass="true"] .label { color: var(--ink-soft); }
+  .detail {
+    grid-column: 2; font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: .82rem; color: var(--fail); white-space: pre-wrap; word-break: break-word;
+    margin-top: .15rem;
+  }
+  .verdict {
+    margin-top: 3rem; padding-top: 1.25rem; border-top: 2px solid var(--ink);
+    font: 400 1.05rem/1.5 Fraunces, Georgia, serif; color: var(--ink-soft);
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Heft — test suite</h1>
+  <p class="lede">
+    Every function in <code>js/lib/</code> is pure and takes its inputs explicitly —
+    including “today” — so nothing here is mocked and nothing here touches the DOM.
+    Serve the folder over HTTP; ES modules will not load from <code>file://</code>.
+  </p>
+  <div class="summary" id="summary" aria-live="polite"></div>
+  <div id="results"></div>
+  <p class="verdict" id="verdict"></p>
+</main>
+
+<script type="module">
+  import { createRunner } from './js/tests/assert.js';
+  import suite from './js/tests/suite.js';
+
+  const runner = createRunner();
+  const { results, failed, passed, total } = runner.run(suite);
+
+  const summary = document.getElementById('summary');
+  const ok = failed.length === 0;
+  summary.innerHTML = `
+    <span class="count ${ok ? 'is-pass' : 'is-fail'}">${passed}<span style="color:var(--ink-faint)">/${total}</span></span>
+    <span class="summary-meta"><strong>${failed.length}</strong> failing · <strong>${new Set(results.map(r => r.group)).size}</strong> groups</span>
+    <span class="bar"><span style="width:${total ? (passed / total) * 100 : 0}%"></span></span>`;
+
+  const groups = [];
+  for (const r of results) {
+    if (!groups.length || groups.at(-1).name !== r.group) groups.push({ name: r.group, rows: [] });
+    groups.at(-1).rows.push(r);
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const g of groups) {
+    const bad = g.rows.filter((r) => !r.pass).length;
+    const section = document.createElement('section');
+    const h2 = document.createElement('h2');
+    h2.append(g.name);
+    const tally = document.createElement('span');
+    tally.textContent = bad ? `${bad} failing` : `${g.rows.length} passing`;
+    tally.style.color = bad ? 'var(--fail)' : 'var(--ink-faint)';
+    h2.append(tally);
+    section.append(h2);
+
+    const ul = document.createElement('ul');
+    for (const r of g.rows) {
+      const li = document.createElement('li');
+      li.dataset.pass = String(r.pass);
+      const mark = document.createElement('span');
+      mark.className = 'mark';
+      mark.textContent = r.pass ? '✓' : '✕';
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = r.label;
+      li.append(mark, label);
+      if (r.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'detail';
+        detail.textContent = r.detail;
+        li.append(detail);
+      }
+      ul.append(li);
+    }
+    section.append(ul);
+    frag.append(section);
+  }
+  document.getElementById('results').append(frag);
+
+  document.getElementById('verdict').textContent = ok
+    ? 'Green. The logic layer holds — money stays integral, dates stay calendar days, and the weight scale never divides by zero.'
+    : `${failed.length} assertion${failed.length === 1 ? '' : 's'} failing. Fix the library, not the test.`;
+  document.title = `${ok ? '✓' : '✕'} ${passed}/${total} — Heft tests`;
+</script>
+</body>
+</html>

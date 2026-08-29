@@ -98,3 +98,25 @@ node --experimental-default-type=module scripts/run-tests.mjs
 
 Every parser rule, every money edge case, and every degenerate case of the weight scale
 has a test. Keep it green before writing UI.
+
+## v2 architecture invariants
+
+- Money is integer paise. Never floats. Never `parseFloat` on a rupee string
+  outside `lib/money.js`.
+- Dates are `YYYY-MM-DD` local-date strings. Never `Date` objects in state,
+  never timestamps for a transaction's day.
+- A transaction stores a POSITIVE `amountPaise` plus a `direction` field.
+  Never a signed amount. Signing happens at the aggregation boundary only.
+- Transfers are a distinct `kind`. A transfer is NEVER income and NEVER
+  expense. Any total that includes a transfer is a bug.
+- Account balances are DERIVED from opening balance + transactions. Never
+  stored as a mutable field, never incremented in place.
+- `lib/` has zero DOM access. `ui/` never writes to localStorage.
+- All state mutation goes through `store.js`. Views subscribe.
+- Never re-render a list with `innerHTML` on change. Reconcile keyed nodes.
+- Every chart has a visually-hidden `<table>` equivalent and a one-sentence
+  plain-language summary.
+- Never convey meaning by colour alone. Red/green always pairs with a sign,
+  a label, or an icon.
+- Nothing may sit underneath the floating action button. Scroll containers
+  get bottom padding greater than the FAB's height plus its offset.

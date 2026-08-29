@@ -82,7 +82,9 @@ If the result is indistinguishable from a Bootstrap admin template, it is wrong.
 
 ## Out of scope — do not build
 
-No backend, database, auth, accounts or sync. No npm, bundler or transpiler. No
+No backend or database. No user accounts, no authentication, no sign-in, no sync.
+(Everywhere else in this codebase "account" means a money account — Cash, Bank,
+Card — matching the Accounts tab.) No npm, bundler or transpiler. No
 charting, date or utility library. No group expenses or splitting. No bank/CSV import.
 No recurring expenses. No multi-currency. No floats for money, ever.
 

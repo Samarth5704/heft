@@ -155,4 +155,41 @@ Everything that can produce a silently wrong number is built and tested before a
 | 9 | Display options: period model, show-total, carry-over | Carry-over tests **first** (E4), then browser. Last because the period model multiplies the surface of every aggregation |
 | 10 | Drawer, Preferences, Export Report | Browser |
 
-**Two decisions I need from you before step 4.** First, the FAB: we already have the quick-add command line at the top, which I think is better than a FAB→form round trip and is part of our identity. Does the FAB *replace* "Add with details", or do both exist? Second, CLAUDE.md's out-of-scope list says "No backend, database, auth, accounts or sync" — there "accounts" means *user accounts*, not money accounts, but a future session will read it as a contradiction of v2. That line needs rewording.
+The two questions this section originally left open — the FAB, and the CLAUDE.md
+"accounts" wording — are now settled. See G.
+
+---
+
+## G. Decisions taken
+
+Recorded 29 August 2026. These close the two questions left open at the end of F.
+
+### G1. "Account" always means a money account
+
+CLAUDE.md's out-of-scope list read *"No backend, database, auth, accounts or sync"*, where "accounts" meant **user** accounts. A v2 session would reasonably have read that as forbidding the Accounts tab. It now reads:
+
+> No backend or database. No user accounts, no authentication, no sign-in, no sync.
+> (Everywhere else in this codebase "account" means a money account — Cash, Bank,
+> Card — matching the Accounts tab.)
+
+Throughout this codebase **account** means a money account — Cash, Bank, Card — matching the Accounts tab name. There is no competing sense of the word. Keep the domain term everywhere: do not rename `Account`, `accountId`, `toAccountId` or `defaultAccountId` to dodge an ambiguity that no longer exists.
+
+### G2. One FAB, opening a form with a segmented kind control
+
+One floating action button. **Not** a speed-dial, and not a fanned or radial menu.
+
+It opens the transaction form with a segmented **Expense / Income / Transfer** control at the top, defaulting to **Expense**.
+
+- Selecting **Transfer** replaces the category field with a destination account field, and hides the direction control.
+- The segmented control is a **real radio group** — `role="radiogroup"` with radio children, arrow-key navigation, roving tabindex and a correct accessible name — not a row of buttons styled to look like one.
+
+Consequences for the build:
+
+- This is the first place `kind` becomes a user-facing choice, so step 4 must not start before step 2 lands.
+- `ui/expense-form.js` grows a mode switch and is renamed to match the transaction vocabulary. Its `openAdd` / `openEdit` split, validation, and focus-restoration behaviour carry over unchanged.
+- The FAB must obey the last invariant in CLAUDE.md: nothing may sit underneath it, and scroll containers get bottom padding greater than its height plus its offset. This is the flaw that mars four of the seven MyMoney screenshots.
+
+Two loose ends, flagged rather than assumed:
+
+1. **The fate of the existing "Add with details" button was not stated.** It would open the same form the FAB now opens. My recommendation is that it goes and the FAB becomes the single full-form entry point, leaving the quick-add command line as the fast path — but that is a recommendation, not a recorded decision.
+2. **"Hides the direction control" implies a direction control exists in the form.** For expense and income, `direction` is fully determined by `kind` (`out` and `in` respectively), and for a transfer it is fixed `out` of the source account — so on the model as specified in B, the segmented control *is* the only direction input and there is nothing separate to hide. Recorded as stated; if a distinct direction control is intended, say what it is for.

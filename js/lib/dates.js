@@ -175,3 +175,126 @@ export function formatRelativeDay(iso, todayISO) {
   if (p && t && p.year !== t.year) return `${formatDay(iso)} ${p.year}`;
   return formatDay(iso);
 }
+
+/* ------------------------------------------------------------- periods */
+
+/**
+ * The view modes the period stepper offers. Everything downstream — filters,
+ * analytics, budgets — consumes the {start, end} range these produce, never a
+ * month key, so month-specific logic lives here and nowhere else.
+ */
+export const VIEW_MODES = Object.freeze([
+  'daily', 'weekly', 'monthly', '3-month', '6-month', 'yearly',
+]);
+
+/** How many months one step of each mode moves. Null = not a month-based mode. */
+const MONTH_SPAN = { monthly: 1, '3-month': 3, '6-month': 6, yearly: 12 };
+
+const normaliseWeekStart = (n) => (Number.isInteger(n) ? ((n % 7) + 7) % 7 : 1);
+
+/** Shift a date by whole months, clamping the day into the target month. */
+export function addMonthsToDate(iso, n) {
+  const p = parts(iso);
+  if (!p) return null;
+  const q = monthKeyParts(addMonths(monthKey(iso), n));
+  return toISO(q.year, q.month, Math.min(p.day, daysInMonthOf(q.year, q.month)));
+}
+
+/** '11–17 August 2025' / '28 July – 3 August 2025' / across a year, both years. */
+function spanLabel(start, end) {
+  const a = parts(start);
+  const b = parts(end);
+  if (a.year !== b.year) return `${formatDay(start)} ${a.year} – ${formatDay(end)} ${b.year}`;
+  if (a.month !== b.month) return `${formatDay(start)} – ${formatDay(end)} ${b.year}`;
+  return `${a.day}–${b.day} ${MONTH_NAMES[b.month - 1]} ${b.year}`;
+}
+
+/** 'November 2025 – January 2026', collapsing a shared year to one mention. */
+function monthSpanLabel(start, end) {
+  const a = parts(start);
+  const b = parts(end);
+  if (a.year === b.year && a.month === b.month) return formatMonth(monthKey(start));
+  const from = a.year === b.year
+    ? MONTH_NAMES[a.month - 1]
+    : `${MONTH_NAMES[a.month - 1]} ${a.year}`;
+  return `${from} – ${MONTH_NAMES[b.month - 1]} ${b.year}`;
+}
+
+/**
+ * The inclusive date range a view mode covers around an anchor day.
+ *
+ * Weekly honours `weekStartsOn` (0 = Sunday … 6 = Saturday). The multi-month
+ * modes are *trailing* windows ending with the anchor's month — a 3-month view
+ * anchored in January covers November to January, which is what makes a window
+ * able to cross a year boundary at all. Yearly is the calendar year.
+ *
+ * @returns {{start: string, end: string, label: string}|null} null on bad input
+ */
+export function periodRange(viewMode, anchorDate, weekStartsOn = 1) {
+  const p = parts(anchorDate);
+  if (!p) return null;
+
+  if (viewMode === 'daily') {
+    return { start: anchorDate, end: anchorDate, label: `${formatDay(anchorDate)} ${p.year}` };
+  }
+
+  if (viewMode === 'weekly') {
+    const wk = normaliseWeekStart(weekStartsOn);
+    const start = addDays(anchorDate, -(((dayOfWeek(anchorDate) - wk) + 7) % 7));
+    const end = addDays(start, 6);
+    return { start, end, label: spanLabel(start, end) };
+  }
+
+  if (viewMode === 'yearly') {
+    return { start: toISO(p.year, 1, 1), end: toISO(p.year, 12, 31), label: String(p.year) };
+  }
+
+  const span = MONTH_SPAN[viewMode];
+  if (!span) return null;
+
+  const endKey = monthKey(anchorDate);
+  const startKey = addMonths(endKey, -(span - 1));
+  const s = monthKeyParts(startKey);
+  const e = monthKeyParts(endKey);
+  const start = toISO(s.year, s.month, 1);
+  const end = toISO(e.year, e.month, daysInMonthOf(e.year, e.month));
+  return { start, end, label: monthSpanLabel(start, end) };
+}
+
+/** Move an anchor `n` whole periods. Negative goes back. */
+export function stepAnchor(viewMode, anchorDate, n = 1) {
+  if (!isValid(anchorDate)) return null;
+  if (viewMode === 'daily') return addDays(anchorDate, n);
+  if (viewMode === 'weekly') return addDays(anchorDate, n * 7);
+  const span = MONTH_SPAN[viewMode];
+  return span ? addMonthsToDate(anchorDate, n * span) : null;
+}
+
+/**
+ * `count` consecutive ranges ending with the one containing `anchorDate`,
+ * oldest first. This is the input to carry-over and to period comparison.
+ */
+export function periodsEndingAt(viewMode, anchorDate, count = 6, weekStartsOn = 1) {
+  if (!isValid(anchorDate) || !Number.isInteger(count) || count < 1) return [];
+  const out = [];
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const anchor = stepAnchor(viewMode, anchorDate, -i);
+    const range = anchor ? periodRange(viewMode, anchor, weekStartsOn) : null;
+    if (range) out.push(range);
+  }
+  return out;
+}
+
+/** Whole days in an inclusive range. */
+export function periodLength(range) {
+  if (!range || !isValid(range.start) || !isValid(range.end)) return 0;
+  return Math.max(0, diffDays(range.start, range.end) + 1);
+}
+
+/** Is a date inside an inclusive range? A null bound means unbounded. */
+export function isInRange(iso, range) {
+  if (!range) return true;
+  if (range.start && iso < range.start) return false;
+  if (range.end && iso > range.end) return false;
+  return true;
+}

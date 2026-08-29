@@ -1,16 +1,35 @@
 /**
  * storage.js — schema, validation, migration, and persistence.
  *
- * The pure half (defaultState, migrate, parseState, validateExpense) has no
- * globals and is directly testable. The impure half (load/save) takes the
+ * The pure half (defaultState, migrate, parseState, validateTransaction) has
+ * no globals and is directly testable. The impure half (load/save) takes the
  * storage backend as an argument, so tests can hand it a fake Map-backed
  * object instead of localStorage.
+ *
+ * v2 vocabulary, and it is load-bearing:
+ *   - a *transaction* is money leaving or entering an account. It carries a
+ *     POSITIVE amountPaise and a separate `direction` of 'expense' | 'income'.
+ *     A signed amount is never stored; the sign is applied when aggregating.
+ *   - a *transfer* is money moving between two of your own accounts. It is
+ *     neither income nor expense, has no category, and must never appear in
+ *     any total other than an account balance.
+ *   - an *account* is a money account — Cash, Bank, Card, Wallet. Its balance
+ *     is DERIVED from its opening balance plus its transactions. There is no
+ *     balance field, and nothing increments one in place.
  */
 
 import { isValid } from './dates.js';
 
 export const STORAGE_KEY = 'heft:v1';
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
+
+export const ACCOUNT_TYPES = Object.freeze(['bank', 'cash', 'card', 'wallet']);
+export const TRANSACTION_KINDS = Object.freeze(['transaction', 'transfer']);
+export const DIRECTIONS = Object.freeze(['expense', 'income']);
+export const CATEGORY_KINDS = Object.freeze(['expense', 'income']);
+
+/** v1 payment methods. Kept only so the v1 -> v2 migration can read them. */
+export const PAYMENT_METHODS = Object.freeze(['cash', 'upi', 'card']);
 
 /**
  * Seed categories. The ids are stable slugs and are what the parser's synonym
@@ -18,29 +37,57 @@ export const CURRENT_SCHEMA_VERSION = 1;
  * colorToken indexes the colourblind-safe palette in tokens.css.
  */
 export const SEED_CATEGORIES = Object.freeze([
-  { id: 'food', name: 'Food & Dining', colorToken: 'cat-1', budgetPaise: null, icon: 'bowl' },
-  { id: 'groceries', name: 'Groceries', colorToken: 'cat-2', budgetPaise: null, icon: 'basket' },
-  { id: 'transport', name: 'Transport', colorToken: 'cat-3', budgetPaise: null, icon: 'route' },
-  { id: 'rent', name: 'Rent & Bills', colorToken: 'cat-4', budgetPaise: null, icon: 'roof' },
-  { id: 'shopping', name: 'Shopping', colorToken: 'cat-5', budgetPaise: null, icon: 'tag' },
-  { id: 'health', name: 'Health', colorToken: 'cat-6', budgetPaise: null, icon: 'pulse' },
-  { id: 'entertainment', name: 'Entertainment', colorToken: 'cat-7', budgetPaise: null, icon: 'ticket' },
-  { id: 'education', name: 'Education', colorToken: 'cat-8', budgetPaise: null, icon: 'book' },
-  { id: 'other', name: 'Other', colorToken: 'cat-neutral', budgetPaise: null, icon: 'dot' },
+  { id: 'food', name: 'Food & Dining', kind: 'expense', colorToken: 'cat-1', budgetPaise: null, icon: 'bowl', archived: false },
+  { id: 'groceries', name: 'Groceries', kind: 'expense', colorToken: 'cat-2', budgetPaise: null, icon: 'basket', archived: false },
+  { id: 'transport', name: 'Transport', kind: 'expense', colorToken: 'cat-3', budgetPaise: null, icon: 'route', archived: false },
+  { id: 'rent', name: 'Rent & Bills', kind: 'expense', colorToken: 'cat-4', budgetPaise: null, icon: 'roof', archived: false },
+  { id: 'shopping', name: 'Shopping', kind: 'expense', colorToken: 'cat-5', budgetPaise: null, icon: 'tag', archived: false },
+  { id: 'health', name: 'Health', kind: 'expense', colorToken: 'cat-6', budgetPaise: null, icon: 'pulse', archived: false },
+  { id: 'entertainment', name: 'Entertainment', kind: 'expense', colorToken: 'cat-7', budgetPaise: null, icon: 'ticket', archived: false },
+  { id: 'education', name: 'Education', kind: 'expense', colorToken: 'cat-8', budgetPaise: null, icon: 'book', archived: false },
+  { id: 'other', name: 'Other', kind: 'expense', colorToken: 'cat-neutral', budgetPaise: null, icon: 'dot', archived: false },
 ]);
 
-export const PAYMENT_METHODS = Object.freeze(['cash', 'upi', 'card']);
+/** Income has its own category set; an income category is never an expense one. */
+export const SEED_INCOME_CATEGORIES = Object.freeze([
+  { id: 'salary', name: 'Salary', kind: 'income', colorToken: 'inc-1', budgetPaise: null, icon: 'wallet', archived: false },
+  { id: 'refunds', name: 'Refunds', kind: 'income', colorToken: 'inc-2', budgetPaise: null, icon: 'undo', archived: false },
+  { id: 'returns', name: 'Returns', kind: 'income', colorToken: 'inc-3', budgetPaise: null, icon: 'chart', archived: false },
+  { id: 'interest-dividends', name: 'Interest & Dividends', kind: 'income', colorToken: 'inc-4', budgetPaise: null, icon: 'percent', archived: false },
+  { id: 'gifts', name: 'Gifts', kind: 'income', colorToken: 'inc-5', budgetPaise: null, icon: 'gift', archived: false },
+  { id: 'other-income', name: 'Other Income', kind: 'income', colorToken: 'cat-neutral', budgetPaise: null, icon: 'dot', archived: false },
+]);
+
+export const SEED_ACCOUNTS = Object.freeze([
+  { id: 'cash', name: 'Cash', type: 'cash', openingBalancePaise: 0, colorToken: 'acct-1', icon: 'cash', archived: false },
+  { id: 'bank', name: 'Bank', type: 'bank', openingBalancePaise: 0, colorToken: 'acct-2', icon: 'bank', archived: false },
+  { id: 'card', name: 'Card', type: 'card', openingBalancePaise: 0, colorToken: 'acct-3', icon: 'card', archived: false },
+]);
+
+/** The reassignment targets of last resort, one per category kind. */
+export const EXPENSE_SINK_ID = 'other';
+export const INCOME_SINK_ID = 'other-income';
 
 export function defaultState() {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    expenses: [],
-    categories: SEED_CATEGORIES.map((c) => ({ ...c })),
+    transactions: [],
+    accounts: SEED_ACCOUNTS.map((a) => ({ ...a })),
+    categories: [
+      ...SEED_CATEGORIES.map((c) => ({ ...c })),
+      ...SEED_INCOME_CATEGORIES.map((c) => ({ ...c })),
+    ],
     settings: {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       theme: 'system',
       weekStartsOn: 1,
-      defaultCategoryId: 'other',
-      schemaVersion: CURRENT_SCHEMA_VERSION,
+      viewMode: 'monthly',
+      showTotal: true,
+      carryOver: false,
+      defaultAccountId: 'cash',
+      defaultExpenseCategoryId: EXPENSE_SINK_ID,
+      defaultIncomeCategoryId: INCOME_SINK_ID,
+      heftView: true,
     },
   };
 }
@@ -49,27 +96,81 @@ export function defaultState() {
 
 const isNonEmptyString = (v) => typeof v === 'string' && v.length > 0;
 
-/** Returns a clean Expense, or null if the record cannot be trusted. */
-export function validateExpense(raw, categoryIds) {
+/**
+ * The lookups every transaction check needs, built once per load instead of
+ * once per record. `sinks` are the never-orphan fallbacks, resolved from the
+ * categories that actually exist rather than assumed to be the seed ids.
+ */
+export function makeValidationContext({ categories = [], accounts = [], settings = {} } = {}) {
+  const categoryKind = new Map(categories.map((c) => [c.id, c.kind ?? 'expense']));
+  const accountIds = new Set(accounts.map((a) => a.id));
+  const firstOfKind = (kind) => categories.find((c) => (c.kind ?? 'expense') === kind)?.id ?? null;
+
+  return {
+    categoryKind,
+    accountIds,
+    sinks: {
+      expense: categoryKind.get(EXPENSE_SINK_ID) === 'expense'
+        ? EXPENSE_SINK_ID
+        : firstOfKind('expense'),
+      income: categoryKind.get(INCOME_SINK_ID) === 'income'
+        ? INCOME_SINK_ID
+        : firstOfKind('income'),
+    },
+    defaultAccountId: accountIds.has(settings.defaultAccountId)
+      ? settings.defaultAccountId
+      : (accounts[0]?.id ?? null),
+  };
+}
+
+/**
+ * Returns a clean Transaction, or null if the record cannot be trusted.
+ *
+ * Lenient where a guess cannot go wrong (a missing kind is a transaction, a
+ * missing direction is an expense, a category that no longer exists lands in
+ * the sink for its kind), strict where it can: a non-positive or non-integer
+ * amount, an unreal date, and a transfer with no valid destination are all
+ * refused outright rather than quietly repaired into a wrong number.
+ */
+export function validateTransaction(raw, ctx) {
   if (!raw || typeof raw !== 'object') return null;
+  const { categoryKind, accountIds, sinks, defaultAccountId } = ctx;
+
   const amountPaise = raw.amountPaise;
   if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0) return null;
   if (!isValid(raw.date)) return null;
   if (!isNonEmptyString(raw.id)) return null;
 
-  const categoryId = categoryIds.has(raw.categoryId) ? raw.categoryId : 'other';
-  const method = PAYMENT_METHODS.includes(raw.paymentMethod) ? raw.paymentMethod : undefined;
+  const kind = raw.kind === 'transfer' ? 'transfer' : 'transaction';
+  const accountId = accountIds.has(raw.accountId) ? raw.accountId : defaultAccountId;
+  if (!isNonEmptyString(accountId)) return null;
 
-  const expense = {
+  const base = {
     id: raw.id,
+    kind,
     amountPaise,
     date: raw.date,
-    categoryId,
+    accountId,
     note: typeof raw.note === 'string' ? raw.note : '',
     createdAt: isNonEmptyString(raw.createdAt) ? raw.createdAt : new Date(0).toISOString(),
   };
-  if (method) expense.paymentMethod = method;
-  return expense;
+
+  if (kind === 'transfer') {
+    // A transfer with no real destination is not a transfer. There is nothing
+    // safe to guess, and a self-transfer would double-count on one balance.
+    if (!accountIds.has(raw.toAccountId) || raw.toAccountId === accountId) return null;
+    return { ...base, direction: null, toAccountId: raw.toAccountId, categoryId: null };
+  }
+
+  const direction = DIRECTIONS.includes(raw.direction) ? raw.direction : 'expense';
+  // Categories are scoped by kind: an income record can only hold an income
+  // category and vice versa. A mismatch falls back to that kind's sink.
+  const categoryId = categoryKind.get(raw.categoryId) === direction
+    ? raw.categoryId
+    : sinks[direction];
+  if (!isNonEmptyString(categoryId)) return null;
+
+  return { ...base, direction, toAccountId: null, categoryId };
 }
 
 export function validateCategory(raw, index) {
@@ -79,50 +180,126 @@ export function validateCategory(raw, index) {
   return {
     id: raw.id,
     name: raw.name,
+    kind: CATEGORY_KINDS.includes(raw.kind) ? raw.kind : 'expense',
     colorToken: isNonEmptyString(raw.colorToken) ? raw.colorToken : `cat-${(index % 8) + 1}`,
     budgetPaise: Number.isSafeInteger(budget) && budget >= 0 ? budget : null,
     icon: isNonEmptyString(raw.icon) ? raw.icon : 'dot',
+    archived: raw.archived === true,
   };
 }
 
-/* ------------------------------------------------------------ categories */
-
-/** Move every expense in `fromId` to `toId`. Pure. */
-export function reassignExpenses(expenses = [], fromId, toId) {
-  return expenses.map((e) => (e.categoryId === fromId ? { ...e, categoryId: toId } : e));
+/**
+ * An account. `openingBalancePaise` may be negative — that is what a credit
+ * card with an outstanding bill looks like on the day you start using Heft.
+ */
+export function validateAccount(raw, index) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (!isNonEmptyString(raw.id) || !isNonEmptyString(raw.name)) return null;
+  const opening = raw.openingBalancePaise;
+  return {
+    id: raw.id,
+    name: raw.name,
+    type: ACCOUNT_TYPES.includes(raw.type) ? raw.type : 'cash',
+    openingBalancePaise: Number.isSafeInteger(opening) ? opening : 0,
+    colorToken: isNonEmptyString(raw.colorToken) ? raw.colorToken : `acct-${(index % 6) + 1}`,
+    icon: isNonEmptyString(raw.icon) ? raw.icon : 'wallet',
+    archived: raw.archived === true,
+  };
 }
 
-/** Drop every expense in a category. Pure, and deliberately explicit. */
-export function dropExpensesIn(expenses = [], categoryId) {
-  return expenses.filter((e) => e.categoryId !== categoryId);
+/* ------------------------------------------------- categories & accounts */
+
+/** Move every transaction in `fromId` to `toId`. Pure. */
+export function reassignCategory(transactions = [], fromId, toId) {
+  return transactions.map((t) => (t.categoryId === fromId ? { ...t, categoryId: toId } : t));
 }
 
-export function countExpensesIn(expenses = [], categoryId) {
-  return expenses.reduce((n, e) => n + (e.categoryId === categoryId ? 1 : 0), 0);
+/** Drop every transaction in a category. Pure, and deliberately explicit. */
+export function dropTransactionsIn(transactions = [], categoryId) {
+  return transactions.filter((t) => t.categoryId !== categoryId);
+}
+
+export function countTransactionsIn(transactions = [], categoryId) {
+  return transactions.reduce((n, t) => n + (t.categoryId === categoryId ? 1 : 0), 0);
+}
+
+/** A transaction touches an account as its source or as a transfer's target. */
+export const touchesAccount = (t, accountId) => (
+  t.accountId === accountId || t.toAccountId === accountId
+);
+
+export function countTransactionsFor(transactions = [], accountId) {
+  return transactions.reduce((n, t) => n + (touchesAccount(t, accountId) ? 1 : 0), 0);
+}
+
+/** Move every transaction touching `fromId` — both legs of a transfer. */
+export function reassignAccount(transactions = [], fromId, toId) {
+  return transactions
+    .map((t) => {
+      if (!touchesAccount(t, fromId)) return t;
+      const next = { ...t };
+      if (next.accountId === fromId) next.accountId = toId;
+      if (next.toAccountId === fromId) next.toAccountId = toId;
+      return next;
+    })
+    // A transfer whose two ends collapse onto one account is no longer a
+    // transfer. Keeping it would leave a record that moves money nowhere.
+    .filter((t) => !(t.kind === 'transfer' && t.accountId === t.toAccountId));
+}
+
+export function dropTransactionsFor(transactions = [], accountId) {
+  return transactions.filter((t) => !touchesAccount(t, accountId));
 }
 
 /**
- * Can this category be removed at all?
- * 'Other' stays: it is the reassignment target of last resort, and the
- * validator falls back to it whenever a category cannot be resolved.
+ * Can this category be hard-deleted?
+ *
+ * Archiving is the default for anything with history — deleting is offered
+ * only when nothing points at it. A category still in use returns 'in-use'
+ * with its count, and the caller must then pass an explicit reassign-or-delete
+ * choice. The two sinks stay: they are the reassignment target of last resort
+ * and the validator's fallback for their kind.
  */
-export function canDeleteCategory(categories = [], id) {
-  if (id === 'other') return { ok: false, reason: 'protected' };
-  if (!categories.some((c) => c.id === id)) return { ok: false, reason: 'not-found' };
+export function canDeleteCategory(categories = [], id, transactions = null) {
+  if (id === EXPENSE_SINK_ID || id === INCOME_SINK_ID) return { ok: false, reason: 'protected' };
+  const target = categories.find((c) => c.id === id);
+  if (!target) return { ok: false, reason: 'not-found' };
   if (categories.length <= 1) return { ok: false, reason: 'last-category' };
+  const kind = target.kind ?? 'expense';
+  if (categories.filter((c) => (c.kind ?? 'expense') === kind).length <= 1) {
+    return { ok: false, reason: 'last-of-kind' };
+  }
+  if (transactions) {
+    const count = countTransactionsIn(transactions, id);
+    if (count > 0) return { ok: false, reason: 'in-use', count };
+  }
   return { ok: true };
 }
 
-/** A stable, readable id for a new user-made category. */
-export function makeCategoryId(name, existing = []) {
+/** The same rule for accounts: archive what has history, delete what does not. */
+export function canDeleteAccount(accounts = [], id, transactions = null) {
+  if (!accounts.some((a) => a.id === id)) return { ok: false, reason: 'not-found' };
+  if (accounts.length <= 1) return { ok: false, reason: 'last-account' };
+  if (transactions) {
+    const count = countTransactionsFor(transactions, id);
+    if (count > 0) return { ok: false, reason: 'in-use', count };
+  }
+  return { ok: true };
+}
+
+/** A stable, readable id for a new user-made category or account. */
+export function makeSlugId(name, existing = [], fallback = 'item') {
   const taken = new Set(existing.map((c) => c.id));
   const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    || 'category';
+    || fallback;
   if (!taken.has(base)) return base;
   let n = 2;
   while (taken.has(`${base}-${n}`)) n += 1;
   return `${base}-${n}`;
 }
+
+export const makeCategoryId = (name, existing = []) => makeSlugId(name, existing, 'category');
+export const makeAccountId = (name, existing = []) => makeSlugId(name, existing, 'account');
 
 /* -------------------------------------------------------------- migration */
 
@@ -130,9 +307,8 @@ export function makeCategoryId(name, existing = []) {
  * Upgrade an older payload to the current schema.
  *
  * v0 is the shape this app would have had if it had been written carelessly:
- * rupees as floats, category by name, no createdAt, no version field. The
- * migration exists even though only one version has ever shipped — the seam is
- * the point. Add a v1 -> v2 branch here when the shape next changes.
+ * rupees as floats, category by name, no createdAt, no version field. v1 is
+ * the shipped expenses-only schema. v2 adds accounts, income and transfers.
  *
  * @returns {{ok: true, data: object} | {ok: false, reason: string}}
  */
@@ -150,6 +326,7 @@ export function migrate(input) {
 
   let data = input;
   if (version === 0) data = migrateV0toV1(data);
+  if (version <= 1) data = migrateV1toV2(data);
 
   return { ok: true, data: normalise(data) };
 }
@@ -160,43 +337,149 @@ function migrateV0toV1(v0) {
   return {
     schemaVersion: 1,
     categories: SEED_CATEGORIES.map((c) => ({ ...c })),
-    settings: { ...defaultState().settings, ...(v0.settings ?? {}) },
+    settings: { ...(v0.settings ?? {}) },
     expenses: expenses.map((e, i) => ({
       id: isNonEmptyString(e?.id) ? e.id : `v0-${i}`,
       // v0 stored rupees as a float; round at the boundary, once.
       amountPaise: Math.round((Number(e?.amount) || 0) * 100),
       date: e?.date,
-      categoryId: nameToId.get(String(e?.category ?? '').toLowerCase()) ?? 'other',
+      categoryId: nameToId.get(String(e?.category ?? '').toLowerCase()) ?? EXPENSE_SINK_ID,
       note: typeof e?.note === 'string' ? e.note : '',
       createdAt: isNonEmptyString(e?.createdAt) ? e.createdAt : new Date(0).toISOString(),
+      ...(isNonEmptyString(e?.paymentMethod) ? { paymentMethod: e.paymentMethod } : {}),
     })),
   };
 }
 
-/** Drop anything unusable and fill in anything missing. Never throws. */
-export function normalise(input) {
-  const base = defaultState();
-  const rawCategories = Array.isArray(input.categories) ? input.categories : base.categories;
+/**
+ * v1 -> v2. Every v1 record is an expense out of a real account.
+ *
+ * A default Cash account always exists. 'card' maps onto a Card account
+ * because a card *is* an account type; 'upi' does not — UPI is a rail that can
+ * be pointed at any account, so mapping it would invent a fact the data does
+ * not contain. It goes into the note instead, where it stays visible and
+ * correctable. No amount, date, category or id is changed by this migration.
+ */
+export function migrateV1toV2(v1) {
+  const expenses = Array.isArray(v1.expenses) ? v1.expenses : [];
+  const methods = new Set(expenses.map((e) => e?.paymentMethod).filter(Boolean));
 
-  const categories = rawCategories
-    .map((c, i) => validateCategory(c, i))
-    .filter(Boolean);
-  if (categories.length === 0) categories.push(...base.categories);
-  const ids = new Set(categories.map((c) => c.id));
-  if (!ids.has('other')) {
-    categories.push({ ...SEED_CATEGORIES[SEED_CATEGORIES.length - 1] });
-    ids.add('other');
+  const accounts = [{ ...SEED_ACCOUNTS[0] }];
+  if (methods.has('card')) accounts.push({ ...SEED_ACCOUNTS[2] });
+
+  const accountFor = (method) => (method === 'card' ? 'card' : 'cash');
+  const noteFor = (note, method) => {
+    if (method !== 'upi') return note;
+    return note ? `${note} (UPI)` : 'UPI';
+  };
+
+  const rawCategories = Array.isArray(v1.categories) && v1.categories.length
+    ? v1.categories
+    : SEED_CATEGORIES.map((c) => ({ ...c }));
+
+  // Every v1 category is an expense category by construction: v1 had no income.
+  const categories = rawCategories.map((c) => ({ ...c, kind: 'expense' }));
+
+  // Seed the income set, re-slugging any id a user's expense category already
+  // holds — someone who made a "Returns" expense category must not have it
+  // silently turned into an income category.
+  const incomeIdMap = new Map();
+  for (const seed of SEED_INCOME_CATEGORIES) {
+    const id = makeSlugId(seed.id, categories, 'income');
+    incomeIdMap.set(seed.id, id);
+    categories.push({ ...seed, id });
   }
 
-  const expenses = (Array.isArray(input.expenses) ? input.expenses : [])
-    .map((e) => validateExpense(e, ids))
-    .filter(Boolean);
+  //  is superseded by a default per kind; carrying the dead
+  // key forward would leave two sources of truth for the same choice.
+  const { defaultCategoryId, ...v1Settings } = v1.settings ?? {};
+  const expenseIds = new Set(categories.filter((c) => c.kind === 'expense').map((c) => c.id));
+
+  return {
+    schemaVersion: 2,
+    accounts,
+    categories,
+    transactions: expenses.map((e) => {
+      const method = e?.paymentMethod;
+      const { paymentMethod, ...rest } = e ?? {};
+      return {
+        ...rest,
+        kind: 'transaction',
+        direction: 'expense',
+        accountId: accountFor(method),
+        toAccountId: null,
+        categoryId: e?.categoryId ?? EXPENSE_SINK_ID,
+        note: noteFor(typeof e?.note === 'string' ? e.note : '', method),
+      };
+    }),
+    settings: {
+      ...v1Settings,
+      schemaVersion: 2,
+      viewMode: v1Settings.viewMode ?? 'monthly',
+      showTotal: v1Settings.showTotal ?? true,
+      carryOver: v1Settings.carryOver ?? false,
+      heftView: v1Settings.heftView ?? true,
+      defaultAccountId: 'cash',
+      defaultExpenseCategoryId: expenseIds.has(defaultCategoryId)
+        ? defaultCategoryId
+        : EXPENSE_SINK_ID,
+      defaultIncomeCategoryId: incomeIdMap.get(INCOME_SINK_ID) ?? INCOME_SINK_ID,
+    },
+  };
+}
+
+/**
+ * Drop anything unusable and fill in anything missing. Never throws.
+ *
+ * This runs at the end of every migration, so it has to know about every field
+ * v2 added: it rebuilds each record explicitly, and anything it has not been
+ * taught about is gone. Harmless for junk, fatal for a field added upstream of
+ * it — which is why it is made version-aware before the migration that needs it.
+ */
+export function normalise(input) {
+  const base = defaultState();
+
+  const rawCategories = Array.isArray(input.categories) && input.categories.length
+    ? input.categories
+    : base.categories;
+  const categories = rawCategories.map((c, i) => validateCategory(c, i)).filter(Boolean);
+  if (categories.length === 0) categories.push(...base.categories);
+
+  // Both sinks must exist: they are the fallback for their kind, and a ledger
+  // with no income category at all could not record income.
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  if (byId.get(EXPENSE_SINK_ID)?.kind !== 'expense') {
+    categories.push({ ...SEED_CATEGORIES[SEED_CATEGORIES.length - 1] });
+  }
+  if (!categories.some((c) => c.kind === 'income')) {
+    categories.push(...SEED_INCOME_CATEGORIES.map((c) => ({ ...c })));
+  }
+
+  const rawAccounts = Array.isArray(input.accounts) && input.accounts.length
+    ? input.accounts
+    : base.accounts;
+  const accounts = rawAccounts.map((a, i) => validateAccount(a, i)).filter(Boolean);
+  if (accounts.length === 0) accounts.push(...base.accounts);
 
   const settings = { ...base.settings, ...(input.settings ?? {}) };
-  if (!ids.has(settings.defaultCategoryId)) settings.defaultCategoryId = 'other';
+  const ctx = makeValidationContext({ categories, accounts, settings });
+
+  const transactions = (Array.isArray(input.transactions) ? input.transactions : [])
+    .map((t) => validateTransaction(t, ctx))
+    .filter(Boolean);
+
+  settings.defaultAccountId = ctx.defaultAccountId;
+  if (ctx.categoryKind.get(settings.defaultExpenseCategoryId) !== 'expense') {
+    settings.defaultExpenseCategoryId = ctx.sinks.expense;
+  }
+  if (ctx.categoryKind.get(settings.defaultIncomeCategoryId) !== 'income') {
+    settings.defaultIncomeCategoryId = ctx.sinks.income;
+  }
   settings.schemaVersion = CURRENT_SCHEMA_VERSION;
 
-  return { schemaVersion: CURRENT_SCHEMA_VERSION, expenses, categories, settings };
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION, transactions, accounts, categories, settings,
+  };
 }
 
 /**

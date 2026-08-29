@@ -295,13 +295,18 @@ function findSynonym(tokens, index) {
 /**
  * Parse a quick-add line into a draft expense.
  * @param {string} input
- * @param {{categories: Array, today: string, defaultCategoryId?: string}} ctx
+ * @param {{categories: Array, today: string, defaultCategoryId?: string,
+ *   kind?: 'expense'|'income'}} ctx
  * @returns {{ok: boolean, amountPaise: number|null, date: string,
  *   categoryId: string|null, note: string, matchedBy: string,
  *   error: string|null, message: string|null, warnings: string[]}}
  */
 export function parseQuickAdd(input, ctx = {}) {
-  const categories = ctx.categories ?? [];
+  // Categories are scoped by kind, so an expense-context parse can never
+  // match an income category — typing 'salary' on the expense line must not
+  // silently file the spend under money you earned.
+  const kind = ctx.kind ?? 'expense';
+  const categories = (ctx.categories ?? []).filter((c) => (c.kind ?? 'expense') === kind);
   const todayISO = ctx.today;
   const fallback = ctx.defaultCategoryId ?? categories[0]?.id ?? null;
 

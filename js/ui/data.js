@@ -6,11 +6,11 @@
  * explicit choice with the consequences of each spelled out in numbers.
  * Deleting everything requires typing the word.
  *
- * The parsing and the counting live in lib/transfer.js and are tested there.
+ * The parsing and the counting live in lib/backup.js and are tested there.
  * This module owns the Blob, the file reader, and the dialogs.
  */
 
-import { buildExport, exportFilename, readImport, summariseImport } from '../lib/transfer.js';
+import { buildExport, exportFilename, readImport, summariseImport } from '../lib/backup.js';
 
 const IMPORT_ERRORS = {
   'empty-file': 'That file is empty.',

@@ -1,104 +1,248 @@
 /**
- * analytics.js — every function here is pure and takes the expense array as an
- * argument. Nothing reads global state, nothing touches the DOM, nothing reads
- * a clock (today is always passed in). That is what makes them testable.
+ * analytics.js — every function here is pure and takes the transaction array
+ * as an argument. Nothing reads global state, nothing touches the DOM, nothing
+ * reads a clock (today is always passed in). That is what makes them testable.
  *
  * All money in, all money out, is integer paise.
+ *
+ * The v2 rule that governs this whole file: a transaction carries a POSITIVE
+ * amount and a separate direction, and a transfer is neither income nor
+ * expense. So every aggregation entry point states the kind it wants, up
+ * front, and filters before it sums. A total that quietly includes a transfer
+ * or an income record looks entirely plausible and is always wrong.
  */
 
 import { sumPaise } from './money.js';
 import {
-  addDays, compare, datesInMonth, daysInMonthOf, monthKey, monthKeyParts,
-  addMonths, dayOfWeek, parts,
+  addDays, compare, datesInMonth, monthKey, monthKeyParts,
+  addMonths, dayOfWeek, diffDays, parts, periodRange, periodsEndingAt,
+  periodLength, isInRange,
 } from './dates.js';
+
+/* ------------------------------------------------------------------ kinds */
+
+export const isTransfer = (t) => t.kind === 'transfer';
+export const isExpense = (t) => t.kind === 'transaction' && t.direction === 'expense';
+export const isIncome = (t) => t.kind === 'transaction' && t.direction === 'income';
+
+export const expensesOf = (transactions = []) => transactions.filter(isExpense);
+export const incomeOf = (transactions = []) => transactions.filter(isIncome);
+export const transfersOf = (transactions = []) => transactions.filter(isTransfer);
+
+/** Everything inside an inclusive {start, end} range. A null range is everything. */
+export function inRange(transactions = [], range = null) {
+  if (!range) return [...transactions];
+  return transactions.filter((t) => isInRange(t.date, range));
+}
+
+/** Only the transactions inside a 'YYYY-MM' month. */
+export function inMonth(transactions = [], key) {
+  return transactions.filter((t) => monthKey(t.date) === key);
+}
 
 /* ------------------------------------------------------------------ totals */
 
-export function totalPaise(expenses = []) {
-  return sumPaise(expenses, (e) => e.amountPaise);
+/**
+ * The raw sum of whatever it is handed — no kind filtering at all.
+ *
+ * Kept because plenty of callers have already narrowed to one kind, but never
+ * call it on a mixed ledger: it would add a salary and a card-to-bank transfer
+ * into a "spend" figure without complaint. Use expenseTotalPaise,
+ * incomeTotalPaise or netPaise, which say what they mean.
+ */
+export function totalPaise(transactions = []) {
+  return sumPaise(transactions, (t) => t.amountPaise);
 }
 
-/** Only the expenses inside a 'YYYY-MM' month. */
-export function inMonth(expenses = [], key) {
-  return expenses.filter((e) => monthKey(e.date) === key);
+export function expenseTotalPaise(transactions = []) {
+  return sumPaise(expensesOf(transactions), (t) => t.amountPaise);
+}
+
+export function incomeTotalPaise(transactions = []) {
+  return sumPaise(incomeOf(transactions), (t) => t.amountPaise);
+}
+
+/** Income minus expense. Transfers move money between your own pockets and
+ *  cannot change it, so they are excluded by construction. */
+export function netPaise(transactions = []) {
+  return incomeTotalPaise(transactions) - expenseTotalPaise(transactions);
 }
 
 /**
- * Totals per category, largest first.
+ * The triad the Records header shows for a period: what came in, what went
+ * out, and the difference. `transferCount` is reported so the UI can say a
+ * transfer happened without ever folding it into a total.
+ */
+export function periodTotals(transactions = [], range = null) {
+  const scoped = inRange(transactions, range);
+  const incomePaise = incomeTotalPaise(scoped);
+  const expensePaise = expenseTotalPaise(scoped);
+  return {
+    start: range?.start ?? null,
+    end: range?.end ?? null,
+    label: range?.label ?? 'All time',
+    incomePaise,
+    expensePaise,
+    netPaise: incomePaise - expensePaise,
+    count: scoped.length,
+    transferCount: transfersOf(scoped).length,
+  };
+}
+
+/**
+ * Totals per category for one direction, largest first.
+ *
+ * Transfers have no category and are excluded by construction — asking for a
+ * direction is what excludes them, which is why there is no kind-blind
+ * version of this function.
+ *
  * @returns {{categoryId: string, totalPaise: number, count: number, share: number}[]}
  */
-export function byCategory(expenses = []) {
+export function byCategory(transactions = [], direction = 'expense') {
+  const scoped = transactions.filter(
+    (t) => t.kind === 'transaction' && t.direction === direction,
+  );
   const map = new Map();
-  for (const e of expenses) {
-    const row = map.get(e.categoryId) ?? { categoryId: e.categoryId, totalPaise: 0, count: 0 };
-    row.totalPaise += e.amountPaise;
+  for (const t of scoped) {
+    const row = map.get(t.categoryId) ?? { categoryId: t.categoryId, totalPaise: 0, count: 0 };
+    row.totalPaise += t.amountPaise;
     row.count += 1;
-    map.set(e.categoryId, row);
+    map.set(t.categoryId, row);
   }
-  const total = totalPaise(expenses);
+  const total = totalPaise(scoped);
   return [...map.values()]
     .map((row) => ({ ...row, share: total ? row.totalPaise / total : 0 }))
     .sort((a, b) => b.totalPaise - a.totalPaise || compare(a.categoryId, b.categoryId));
 }
 
-export function byPaymentMethod(expenses = []) {
+export const expenseByCategory = (transactions = []) => byCategory(transactions, 'expense');
+export const incomeByCategory = (transactions = []) => byCategory(transactions, 'income');
+
+/** Expense totals per source account. Transfers are not spending. */
+export function byAccount(transactions = [], direction = 'expense') {
   const map = new Map();
-  for (const e of expenses) {
-    const k = e.paymentMethod || 'unknown';
-    map.set(k, (map.get(k) ?? 0) + e.amountPaise);
+  for (const t of transactions) {
+    if (t.kind !== 'transaction' || t.direction !== direction) continue;
+    map.set(t.accountId, (map.get(t.accountId) ?? 0) + t.amountPaise);
   }
   return [...map.entries()]
-    .map(([method, paise]) => ({ method, totalPaise: paise }))
-    .sort((a, b) => b.totalPaise - a.totalPaise);
+    .map(([accountId, paise]) => ({ accountId, totalPaise: paise }))
+    .sort((a, b) => b.totalPaise - a.totalPaise || compare(a.accountId, b.accountId));
 }
 
-/** One entry per calendar day of the month, zero-filled. */
-export function dailyTotals(expenses = [], key) {
+/* --------------------------------------------------------------- balances */
+
+/**
+ * An account's balance, derived — there is no stored balance field anywhere in
+ * this app, and nothing increments one in place.
+ *
+ *   opening + income in - expense out - transfers out + transfers in
+ *
+ * A transfer's two legs are read from the one record, so the money that leaves
+ * `accountId` is exactly the money that arrives at `toAccountId` and net worth
+ * cannot drift. An account with no transactions is exactly its opening balance.
+ */
+export function accountBalance(account, transactions = []) {
+  if (!account) return 0;
+  let balance = account.openingBalancePaise ?? 0;
+  for (const t of transactions) {
+    if (t.kind === 'transfer') {
+      if (t.accountId === account.id) balance -= t.amountPaise;
+      if (t.toAccountId === account.id) balance += t.amountPaise;
+    } else if (t.accountId === account.id) {
+      balance += t.direction === 'income' ? t.amountPaise : -t.amountPaise;
+    }
+  }
+  return balance;
+}
+
+export function accountBalances(accounts = [], transactions = []) {
+  return accounts.map((account) => ({
+    accountId: account.id,
+    name: account.name,
+    type: account.type,
+    archived: account.archived === true,
+    openingBalancePaise: account.openingBalancePaise ?? 0,
+    balancePaise: accountBalance(account, transactions),
+  }));
+}
+
+/**
+ * Everything you have, across every account. Archived accounts still hold
+ * money, so they still count; the UI may hide them, but the number may not.
+ */
+export function netWorthPaise(accounts = [], transactions = []) {
+  return accountBalances(accounts, transactions)
+    .reduce((sum, row) => sum + row.balancePaise, 0);
+}
+
+export function netWorth(accounts = [], transactions = []) {
+  const rows = accountBalances(accounts, transactions);
+  return {
+    totalPaise: rows.reduce((sum, row) => sum + row.balancePaise, 0),
+    accounts: rows,
+  };
+}
+
+/* ------------------------------------------------------------ day buckets */
+
+/** One entry per calendar day of the month, zero-filled. Expenses only. */
+export function dailyTotals(transactions = [], key) {
   const dates = datesInMonth(key);
   const map = new Map(dates.map((d) => [d, 0]));
-  for (const e of expenses) {
-    if (map.has(e.date)) map.set(e.date, map.get(e.date) + e.amountPaise);
+  for (const t of expensesOf(transactions)) {
+    if (map.has(t.date)) map.set(t.date, map.get(t.date) + t.amountPaise);
   }
   return dates.map((date) => ({ date, totalPaise: map.get(date) }));
 }
 
 /**
- * Daily totals across an arbitrary inclusive date range, zero-filled.
- * The rolling average needs the days *before* a month starts, or the line
+ * Daily expense totals across an arbitrary inclusive date range, zero-filled.
+ * The rolling average needs the days *before* a period starts, or the line
  * would restart from nothing on the first of every month.
  */
-export function dailyTotalsBetween(expenses = [], startISO, endISO) {
+export function dailyTotalsBetween(transactions = [], startISO, endISO) {
   if (!startISO || !endISO || compare(startISO, endISO) > 0) return [];
   const map = new Map();
   for (let d = startISO; compare(d, endISO) <= 0; d = addDays(d, 1)) map.set(d, 0);
-  for (const e of expenses) {
-    if (map.has(e.date)) map.set(e.date, map.get(e.date) + e.amountPaise);
+  for (const t of expensesOf(transactions)) {
+    if (map.has(t.date)) map.set(t.date, map.get(t.date) + t.amountPaise);
   }
   return [...map.entries()].map(([date, totalPaise]) => ({ date, totalPaise }));
 }
 
-/** Group into day buckets, newest day first, for the ledger. */
-export function groupByDay(expenses = []) {
+/**
+ * Group into day buckets, newest day first, for the ledger.
+ *
+ * Every kind appears as a row — income and transfers are things that happened
+ * on that day and the ledger shows them. The day header's `totalPaise` is
+ * expense only, because that is what a spending total means; `incomePaise` and
+ * `netPaise` are there for a header that wants to say more.
+ */
+export function groupByDay(transactions = []) {
   const map = new Map();
-  for (const e of expenses) {
-    if (!map.has(e.date)) map.set(e.date, []);
-    map.get(e.date).push(e);
+  for (const t of transactions) {
+    if (!map.has(t.date)) map.set(t.date, []);
+    map.get(t.date).push(t);
   }
   return [...map.entries()]
     .sort((a, b) => compare(b[0], a[0]))
     .map(([date, items]) => ({
       date,
       // Stable order inside a day: newest entry first, id as the tiebreak.
-      expenses: items.slice().sort(
+      transactions: items.slice().sort(
         (a, b) => compare(b.createdAt ?? '', a.createdAt ?? '') || compare(a.id, b.id),
       ),
-      totalPaise: totalPaise(items),
+      totalPaise: expenseTotalPaise(items),
+      expensePaise: expenseTotalPaise(items),
+      incomePaise: incomeTotalPaise(items),
+      netPaise: netPaise(items),
     }));
 }
 
-export function topExpenses(expenses = [], limit = 5) {
-  return expenses
-    .slice()
+/** The biggest expenses. A salary is not a big expense, so income is excluded. */
+export function topExpenses(transactions = [], limit = 5) {
+  return expensesOf(transactions)
     .sort((a, b) => b.amountPaise - a.amountPaise || compare(b.date, a.date))
     .slice(0, limit);
 }
@@ -120,28 +264,34 @@ export function mean(values = []) {
 }
 
 /**
- * How many days of a month have happened, counting today as elapsed.
- * A future month is 0; a past month is the whole month.
+ * How many days of a range have happened, counting today as elapsed.
+ * A future range is 0; a finished one is its whole length.
  */
+export function daysElapsedIn(range, todayISO) {
+  if (!range || !parts(todayISO)) return 0;
+  if (compare(todayISO, range.start) < 0) return 0;
+  if (compare(todayISO, range.end) > 0) return periodLength(range);
+  return diffDays(range.start, todayISO) + 1;
+}
+
+/** The same question asked of a 'YYYY-MM' month. */
 export function daysElapsed(key, todayISO) {
   const m = monthKeyParts(key);
-  const t = parts(todayISO);
-  if (!m || !t) return 0;
-  const todayKey = monthKey(todayISO);
-  if (key < todayKey) return daysInMonthOf(m.year, m.month);
-  if (key > todayKey) return 0;
-  return t.day;
+  if (!m || !parts(todayISO)) return 0;
+  return daysElapsedIn(periodRange('monthly', `${key}-01`), todayISO);
 }
 
 /**
- * Mean vs median daily spend for a month — the comparison this app exists to
- * surface. The denominator is *days elapsed*, not days with an expense: a day
- * you spent nothing is a real day, and dropping it flatters both numbers.
- * Mean is dragged up by rent and EMIs; median is what an ordinary day costs.
+ * Mean vs median daily spend — the comparison this app exists to surface. The
+ * denominator is *days elapsed*, not days with an expense: a day you spent
+ * nothing is a real day, and dropping it flatters both numbers. Mean is
+ * dragged up by rent and EMIs; median is what an ordinary day costs.
+ *
+ * Income and transfers are not spending and are excluded throughout.
  */
-export function dailySpendStats(expenses = [], key, todayISO) {
-  const elapsed = daysElapsed(key, todayISO);
-  const series = dailyTotals(inMonth(expenses, key), key)
+export function dailySpendStatsForRange(transactions = [], range, todayISO) {
+  const elapsed = daysElapsedIn(range, todayISO);
+  const series = dailyTotalsBetween(inRange(transactions, range), range.start, range.end)
     .slice(0, elapsed)
     .map((d) => d.totalPaise);
   return {
@@ -150,6 +300,10 @@ export function dailySpendStats(expenses = [], key, todayISO) {
     medianPaise: median(series),
     totalPaise: sumPaise(series),
   };
+}
+
+export function dailySpendStats(transactions = [], key, todayISO) {
+  return dailySpendStatsForRange(transactions, periodRange('monthly', `${key}-01`), todayISO);
 }
 
 /**
@@ -170,23 +324,64 @@ export function rollingAverage(series = [], window = 30) {
   return out;
 }
 
-/** Totals for the last `count` months ending at `key`, oldest first. */
-export function monthOverMonth(expenses = [], key, count = 6) {
+/* ----------------------------------------------------------- period series */
+
+/** Expense/income/net totals for each of an ordered list of ranges. */
+export function periodTotalsSeries(transactions = [], periods = []) {
+  return periods.map((range) => periodTotals(transactions, range));
+}
+
+/**
+ * The last `count` periods ending with the one containing `anchorDate`,
+ * oldest first. This is the generalisation of monthOverMonth: the chart asks
+ * for a view mode and gets a range per bar, whatever that mode is.
+ */
+export function periodSeries(
+  transactions = [], viewMode = 'monthly', anchorDate, count = 6, weekStartsOn = 1,
+) {
+  return periodTotalsSeries(
+    transactions, periodsEndingAt(viewMode, anchorDate, count, weekStartsOn),
+  );
+}
+
+/**
+ * This period against the one before it. Expense is the headline figure — it
+ * is what "you spent more this month" means — with income and net alongside.
+ */
+export function periodComparison(
+  transactions = [], viewMode = 'monthly', anchorDate, weekStartsOn = 1,
+) {
+  const [previous, current] = periodTotalsSeries(
+    transactions, periodsEndingAt(viewMode, anchorDate, 2, weekStartsOn),
+  );
+  const deltaPaise = current.expensePaise - previous.expensePaise;
+  return {
+    current,
+    previous,
+    deltaPaise,
+    // No previous spend means no meaningful percentage — say so, don't print Infinity.
+    deltaPercent: previous.expensePaise ? (deltaPaise / previous.expensePaise) * 100 : null,
+    direction: deltaPaise > 0 ? 'up' : deltaPaise < 0 ? 'down' : 'flat',
+  };
+}
+
+/** Expense totals for the last `count` months ending at `key`, oldest first. */
+export function monthOverMonth(transactions = [], key, count = 6) {
   const keys = [];
   for (let i = count - 1; i >= 0; i -= 1) keys.push(addMonths(key, -i));
   const map = new Map(keys.map((k) => [k, 0]));
-  for (const e of expenses) {
-    const k = monthKey(e.date);
-    if (map.has(k)) map.set(k, map.get(k) + e.amountPaise);
+  for (const t of expensesOf(transactions)) {
+    const k = monthKey(t.date);
+    if (map.has(k)) map.set(k, map.get(k) + t.amountPaise);
   }
   return keys.map((k) => ({ monthKey: k, totalPaise: map.get(k) }));
 }
 
-/** Month total plus the delta against the previous month. */
-export function monthDelta(expenses = [], key) {
-  const current = totalPaise(inMonth(expenses, key));
+/** Month expense total plus the delta against the previous month. */
+export function monthDelta(transactions = [], key) {
+  const current = expenseTotalPaise(inMonth(transactions, key));
   const previousKey = addMonths(key, -1);
-  const previous = totalPaise(inMonth(expenses, previousKey));
+  const previous = expenseTotalPaise(inMonth(transactions, previousKey));
   const deltaPaise = current - previous;
   return {
     monthKey: key,
@@ -194,15 +389,14 @@ export function monthDelta(expenses = [], key) {
     totalPaise: current,
     previousPaise: previous,
     deltaPaise,
-    // No previous spend means no meaningful percentage — say so, don't print Infinity.
     deltaPercent: previous ? (deltaPaise / previous) * 100 : null,
     direction: deltaPaise > 0 ? 'up' : deltaPaise < 0 ? 'down' : 'flat',
   };
 }
 
 /** Weekend (Sat/Sun) vs weekday average daily spend. */
-export function weekendSkew(expenses = [], key) {
-  const days = dailyTotals(inMonth(expenses, key), key);
+export function weekendSkew(transactions = [], key) {
+  const days = dailyTotals(inMonth(transactions, key), key);
   const weekend = [];
   const weekday = [];
   for (const d of days) {
@@ -218,39 +412,83 @@ export function weekendSkew(expenses = [], key) {
   };
 }
 
+/* --------------------------------------------------------------- carry-over */
+
+/**
+ * Roll each period's surplus into the next period's opening figure.
+ *
+ * Surplus is income minus expense, so a transfer can never enter the chain —
+ * it is not in either term. A period with no data has a net of zero and passes
+ * its opening through unchanged rather than breaking the chain.
+ *
+ * **The first period opens at `openingPaise`, which defaults to 0.** There is
+ * no earlier period to inherit from, and inventing one would be inventing
+ * history; a caller who does know the true starting figure passes it in.
+ *
+ * With `enabled: false` every period opens at zero and stands alone, which is
+ * what the carry-over toggle being off means.
+ *
+ * @param {{incomePaise:number, expensePaise:number}[]} periods ordered, oldest first
+ */
+export function carryOver(periods = [], { openingPaise = 0, enabled = true } = {}) {
+  let running = enabled ? openingPaise : 0;
+  return periods.map((p) => {
+    const income = p.incomePaise ?? 0;
+    const expense = p.expensePaise ?? 0;
+    const net = income - expense;
+    const opening = enabled ? running : 0;
+    const closing = opening + net;
+    running = closing;
+    return {
+      ...p,
+      incomePaise: income,
+      expensePaise: expense,
+      openingPaise: opening,
+      netPaise: net,
+      closingPaise: closing,
+    };
+  });
+}
+
+/** Carry-over straight from a ledger and an ordered list of ranges. */
+export function carryOverSeries(transactions = [], periods = [], options = {}) {
+  return carryOver(periodTotalsSeries(transactions, periods), options);
+}
+
 /* ------------------------------------------------------------ budget pace */
 
 /**
- * Projected month-end spend = spend / daysElapsed * daysInMonth.
+ * Projected end-of-period spend = spend / daysElapsed * daysInPeriod.
  * Zero days elapsed returns null rather than dividing by zero.
  */
-export function projectMonthEnd(spentPaise, elapsed, inMonthDays) {
+export function projectMonthEnd(spentPaise, elapsed, totalDays) {
   if (!elapsed || elapsed <= 0) return null;
-  return Math.round((spentPaise / elapsed) * inMonthDays);
+  return Math.round((spentPaise / elapsed) * totalDays);
 }
 
+export const projectPeriodEnd = projectMonthEnd;
+
 /**
- * Budget pace for one category (or the month as a whole).
+ * Budget pace for one category (or the period as a whole).
  *
- *   expectedSpend = budget × (daysElapsed / daysInMonth)
+ *   expectedSpend = budget × (daysElapsed / daysInPeriod)
  *
- * `daysElapsed` counts today as elapsed. For a past month pace is meaningless,
- * so the status is 'final' and the result is what actually happened.
+ * `daysElapsed` counts today as elapsed. For a finished period pace is
+ * meaningless, so the status is the result rather than a prediction.
  * 'on-track' is a band, not a knife edge: within 2% of the budget either way.
  */
-export function pace({ budgetPaise, spentPaise, monthKey: key, today }) {
-  const m = monthKeyParts(key);
-  const total = m ? daysInMonthOf(m.year, m.month) : 0;
-  const elapsed = daysElapsed(key, today);
-  const isPast = key < monthKey(today);
-  const isFuture = key > monthKey(today);
+export function paceForRange({ budgetPaise, spentPaise, range, today }) {
+  const total = periodLength(range);
+  const elapsed = daysElapsedIn(range, today);
+  const isPast = Boolean(range) && compare(today, range.end) > 0;
+  const isFuture = Boolean(range) && compare(today, range.start) < 0;
   const projectedPaise = projectMonthEnd(spentPaise, elapsed, total);
 
   const base = {
     budgetPaise: budgetPaise ?? null,
     spentPaise,
     daysElapsed: elapsed,
-    daysInMonth: total,
+    daysInPeriod: total,
     isPast,
     isFuture,
     projectedPaise,
@@ -283,19 +521,34 @@ export function pace({ budgetPaise, spentPaise, monthKey: key, today }) {
   };
 }
 
-/** Per-category budget report for a month, plus the unbudgeted remainder. */
-export function budgetReport(expenses = [], categories = [], key, today) {
-  const monthExpenses = inMonth(expenses, key);
-  const spentBy = new Map(byCategory(monthExpenses).map((r) => [r.categoryId, r.totalPaise]));
+/** The month-shaped call, in terms of the range-shaped one. */
+export function pace({ budgetPaise, spentPaise, monthKey: key, today }) {
+  const range = periodRange('monthly', `${key}-01`);
+  const result = paceForRange({ budgetPaise, spentPaise, range, today });
+  return { ...result, monthKey: key, daysInMonth: result.daysInPeriod };
+}
 
-  const rows = categories.map((cat) => ({
+/**
+ * Per-category budget report for a range, plus the unbudgeted remainder.
+ *
+ * Spend is expense-only: a refund filed as income in a same-named category
+ * must not quietly pay down a budget, and a transfer must not consume one.
+ */
+export function budgetReportForRange(transactions = [], categories = [], range, today) {
+  const scoped = inRange(transactions, range);
+  const spentBy = new Map(expenseByCategory(scoped).map((r) => [r.categoryId, r.totalPaise]));
+
+  // Budgets belong to spending. An income category has nothing to pace against.
+  const budgetable = categories.filter((c) => (c.kind ?? 'expense') === 'expense');
+
+  const rows = budgetable.map((cat) => ({
     categoryId: cat.id,
     name: cat.name,
     budgetPaise: cat.budgetPaise ?? null,
-    ...pace({
+    ...paceForRange({
       budgetPaise: cat.budgetPaise ?? null,
       spentPaise: spentBy.get(cat.id) ?? 0,
-      monthKey: key,
+      range,
       today,
     }),
   }));
@@ -313,18 +566,26 @@ export function budgetReport(expenses = [], categories = [], key, today) {
     unbudgetedPaise,
     /**
      * The overall row compares budgeted spend against budgeted money — not
-     * the whole month against a plan that only covers part of it, which would
+     * the whole period against a plan that only covers part of it, which would
      * guarantee an overrun and double-count what `unbudgetedPaise` already
-     * reports. The two figures add up to the month total.
+     * reports. The two figures add up to the period's expense total.
      */
-    overall: pace({
+    overall: paceForRange({
       budgetPaise: overallBudget,
       spentPaise: sumPaise(budgeted, (r) => r.spentPaise),
-      monthKey: key,
+      range,
       today,
     }),
-    monthTotalPaise: totalPaise(monthExpenses),
+    totalPaise: expenseTotalPaise(scoped),
   };
+}
+
+/** The month-shaped call, in terms of the range-shaped one. */
+export function budgetReport(transactions = [], categories = [], key, today) {
+  const report = budgetReportForRange(
+    transactions, categories, periodRange('monthly', `${key}-01`), today,
+  );
+  return { ...report, monthTotalPaise: report.totalPaise };
 }
 
 /* ------------------------------------------------------- the weight scale */
@@ -390,6 +651,30 @@ export function weightScale(amounts = []) {
       if (!Number.isFinite(amount) || amount <= 0) return 0;
       const raw = (Math.log(amount) - lo) / span;
       return Math.min(1, Math.max(0, raw));
+    },
+  };
+}
+
+/**
+ * The scale for a ledger, built from expense magnitudes only.
+ *
+ * One ₹50,000 salary in the visible set would move p95 and flatten every
+ * expense row towards invisible — the exact failure the percentile-log scale
+ * exists to prevent. Income gets its own independent scale, and a transfer is
+ * not a weight at all: it is money you still have, so it sits at the neutral
+ * middle and never competes with spending for ink.
+ */
+export function ledgerWeightScale(transactions = []) {
+  const expense = weightScale(expensesOf(transactions).map((t) => t.amountPaise));
+  const income = weightScale(incomeOf(transactions).map((t) => t.amountPaise));
+  return {
+    expense,
+    income,
+    /** The one number per row that CSS interpolates everything else from. */
+    t(transaction) {
+      if (isIncome(transaction)) return income.t(transaction.amountPaise);
+      if (isExpense(transaction)) return expense.t(transaction.amountPaise);
+      return HALF;
     },
   };
 }

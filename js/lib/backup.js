@@ -1,6 +1,11 @@
 /**
- * transfer.js — export, import, and the honest answer to "what will this do
- * to my data?"
+ * backup.js — export, import, and the honest answer to "what will this do to
+ * my data?"
+ *
+ * (This was `transfer.js` until v2, where a *transfer* became a kind of
+ * transaction — money moving between two of your own accounts. One word, two
+ * meanings, in a codebase where one of them must never end up in a total, is
+ * a bug waiting to be written. Backup and restore is what this file is.)
  *
  * Import never silently overwrites. Reading a file and applying it are two
  * separate steps: `readImport` parses and migrates, `summariseImport` says
@@ -13,7 +18,7 @@
 import { CURRENT_SCHEMA_VERSION, defaultState, migrate, normalise } from './storage.js';
 
 export const EXPORT_FORMAT = 'heft.export';
-export const EXPORT_FORMAT_VERSION = 1;
+export const EXPORT_FORMAT_VERSION = 2;
 
 /**
  * Wrap state for export. The envelope carries provenance; `data` is exactly
@@ -27,7 +32,8 @@ export function buildExport(state, { exportedAt = new Date().toISOString() } = {
     exportedAt,
     data: {
       schemaVersion: state.schemaVersion ?? CURRENT_SCHEMA_VERSION,
-      expenses: state.expenses ?? [],
+      transactions: state.transactions ?? [],
+      accounts: state.accounts ?? [],
       categories: state.categories ?? [],
       settings: state.settings ?? {},
     },
@@ -42,6 +48,7 @@ export function exportFilename(exportedAt = new Date().toISOString()) {
  * Parse an uploaded file into usable state.
  * Accepts either the export envelope or a bare state object, so a file
  * someone edited by hand or pulled straight out of localStorage still works.
+ * A v1 file is recognised by its `expenses` array and migrated on the way in.
  *
  * @returns {{ok: true, state: object, exportedAt: string|null}
  *          | {ok: false, reason: string}}
@@ -68,9 +75,11 @@ export function readImport(text) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return { ok: false, reason: 'no-data' };
   }
-  if (!Array.isArray(payload.expenses) && !Array.isArray(payload.categories)) {
-    return { ok: false, reason: 'not-heft-data' };
-  }
+  const looksLikeHeft = Array.isArray(payload.transactions)
+    || Array.isArray(payload.expenses)
+    || Array.isArray(payload.categories)
+    || Array.isArray(payload.accounts);
+  if (!looksLikeHeft) return { ok: false, reason: 'not-heft-data' };
 
   const result = migrate(payload);
   if (!result.ok) return { ok: false, reason: result.reason };
@@ -82,6 +91,8 @@ export function readImport(text) {
   };
 }
 
+const idsOf = (list = []) => new Set(list.map((x) => x.id));
+
 /**
  * What each choice would actually do. Nothing is applied here.
  *
@@ -90,35 +101,41 @@ export function readImport(text) {
  * lost, which is the number people need before they click.
  */
 export function summariseImport(current, incoming) {
-  const currentExpenseIds = new Set(current.expenses.map((e) => e.id));
-  const currentCategoryIds = new Set(current.categories.map((c) => c.id));
+  const currentTransactionIds = idsOf(current.transactions);
+  const currentCategoryIds = idsOf(current.categories);
+  const currentAccountIds = idsOf(current.accounts);
 
-  const newExpenses = incoming.expenses.filter((e) => !currentExpenseIds.has(e.id));
-  const duplicateExpenses = incoming.expenses.length - newExpenses.length;
+  const newTransactions = incoming.transactions.filter((t) => !currentTransactionIds.has(t.id));
+  const duplicates = incoming.transactions.length - newTransactions.length;
   const newCategories = incoming.categories.filter((c) => !currentCategoryIds.has(c.id));
+  const newAccounts = (incoming.accounts ?? []).filter((a) => !currentAccountIds.has(a.id));
 
   return {
     incoming: {
-      expenses: incoming.expenses.length,
+      transactions: incoming.transactions.length,
       categories: incoming.categories.length,
+      accounts: (incoming.accounts ?? []).length,
     },
     current: {
-      expenses: current.expenses.length,
+      transactions: current.transactions.length,
       categories: current.categories.length,
+      accounts: (current.accounts ?? []).length,
     },
     merge: {
-      expensesAdded: newExpenses.length,
-      expensesSkipped: duplicateExpenses,
+      transactionsAdded: newTransactions.length,
+      transactionsSkipped: duplicates,
       categoriesAdded: newCategories.length,
-      expensesAfter: current.expenses.length + newExpenses.length,
-      expensesRemoved: 0,
+      accountsAdded: newAccounts.length,
+      transactionsAfter: current.transactions.length + newTransactions.length,
+      transactionsRemoved: 0,
     },
     replace: {
-      expensesAdded: incoming.expenses.length,
-      expensesSkipped: 0,
+      transactionsAdded: incoming.transactions.length,
+      transactionsSkipped: 0,
       categoriesAdded: newCategories.length,
-      expensesAfter: incoming.expenses.length,
-      expensesRemoved: current.expenses.length,
+      accountsAdded: newAccounts.length,
+      transactionsAfter: incoming.transactions.length,
+      transactionsRemoved: current.transactions.length,
     },
   };
 }
@@ -127,20 +144,30 @@ export function summariseImport(current, incoming) {
  * Merge incoming into current. Existing records win on an id collision: the
  * file is older than what is on screen unless the user says otherwise, and
  * quietly overwriting an edit someone just made is the worse failure.
+ *
+ * Accounts merge alongside categories — an imported transaction whose account
+ * did not come with it would be re-homed onto the default account by the
+ * validator, which is a silent loss of exactly the kind this file exists to
+ * prevent.
  */
 export function mergeStates(current, incoming) {
-  const existingExpenseIds = new Set(current.expenses.map((e) => e.id));
-  const existingCategoryIds = new Set(current.categories.map((c) => c.id));
+  const existingTransactionIds = idsOf(current.transactions);
+  const existingCategoryIds = idsOf(current.categories);
+  const existingAccountIds = idsOf(current.accounts);
 
   return normalise({
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    expenses: [
-      ...current.expenses,
-      ...incoming.expenses.filter((e) => !existingExpenseIds.has(e.id)),
+    accounts: [
+      ...current.accounts,
+      ...(incoming.accounts ?? []).filter((a) => !existingAccountIds.has(a.id)),
     ],
     categories: [
       ...current.categories,
       ...incoming.categories.filter((c) => !existingCategoryIds.has(c.id)),
+    ],
+    transactions: [
+      ...current.transactions,
+      ...incoming.transactions.filter((t) => !existingTransactionIds.has(t.id)),
     ],
     settings: current.settings,
   });
@@ -154,11 +181,12 @@ export function replaceWith(current, incoming) {
   });
 }
 
-/** An empty ledger, keeping the user's categories and settings. */
+/** An empty ledger, keeping the user's accounts, categories and settings. */
 export function clearedState(current) {
   return normalise({
     ...defaultState(),
-    expenses: [],
+    transactions: [],
+    accounts: current.accounts,
     categories: current.categories,
     settings: current.settings,
   });

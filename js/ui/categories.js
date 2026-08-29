@@ -7,7 +7,7 @@
  * are affected and makes you choose: move them somewhere, or delete them too.
  */
 
-import { canDeleteCategory, countExpensesIn } from '../lib/storage.js';
+import { canDeleteCategory, countTransactionsIn } from '../lib/storage.js';
 import { formatINR } from '../lib/money.js';
 
 const COLOR_TOKENS = [
@@ -42,7 +42,7 @@ export function createCategoryManager({
   }
 
   function buildDeletePanel(category, state) {
-    const count = countExpensesIn(state.expenses, category.id);
+    const count = countTransactionsIn(state.expenses, category.id);
     const others = state.categories.filter((c) => c.id !== category.id);
 
     const panel = document.createElement('div');
@@ -176,7 +176,7 @@ export function createCategoryManager({
       dot.style.setProperty('--cat', `var(--${colour.value})`);
     });
 
-    const count = countExpensesIn(state.expenses, category.id);
+    const count = countTransactionsIn(state.expenses, category.id);
     const meta = document.createElement('span');
     meta.className = 'category-count num';
     meta.textContent = count === 1 ? '1 expense' : `${count} expenses`;

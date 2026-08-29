@@ -1,13 +1,21 @@
 /**
- * sample-data.js — ~3 months of plausible Indian spending, so the demo is
- * never an empty screen.
+ * sample-data.js — ~3 months of plausible Indian money, so the demo is never
+ * an empty screen.
  *
  * Pure and deterministic: the clock, the id factory and the random source are
  * all arguments. The same seed always produces the same ledger, which means
  * the shape of the topography in a screenshot is reproducible.
+ *
+ * v2: it generates transactions, not just expenses — a salary each month, the
+ * card bill paid off as a transfer, and the spending in between. Without
+ * income and transfers the Accounts tab would be a column of negative numbers
+ * and the model would go undemonstrated.
  */
 
 import { addDays, datesInMonth, dayOfWeek, monthKey, addMonths } from './dates.js';
+
+/** The accounts the generated ledger spends from. */
+export const SAMPLE_ACCOUNT_IDS = Object.freeze(['cash', 'bank', 'card']);
 
 /** Small, fast, seedable PRNG. */
 export function mulberry32(seed) {
@@ -20,35 +28,35 @@ export function mulberry32(seed) {
   };
 }
 
-/* Each entry: [note, categoryId, minRupees, maxRupees, methods] */
+/* Each entry: [note, categoryId, minRupees, maxRupees, accountIds] */
 const BREAKFAST = [
-  ['Filter coffee', 'food', 20, 60, ['cash', 'upi']],
+  ['Filter coffee', 'food', 20, 60, ['cash', 'bank']],
   ['Chai and vada', 'food', 25, 70, ['cash']],
-  ['Idli plate', 'food', 40, 90, ['cash', 'upi']],
+  ['Idli plate', 'food', 40, 90, ['cash', 'bank']],
 ];
 const LUNCH = [
-  ['Canteen lunch', 'food', 80, 190, ['upi', 'cash']],
-  ['Swiggy', 'food', 220, 520, ['upi', 'card']],
-  ['Zomato', 'food', 240, 610, ['upi', 'card']],
-  ['Thali, Sagar', 'food', 130, 260, ['cash', 'upi']],
+  ['Canteen lunch', 'food', 80, 190, ['bank', 'cash']],
+  ['Swiggy', 'food', 220, 520, ['bank', 'card']],
+  ['Zomato', 'food', 240, 610, ['bank', 'card']],
+  ['Thali, Sagar', 'food', 130, 260, ['cash', 'bank']],
 ];
 const EVENING = [
   ['Chai', 'food', 15, 40, ['cash']],
-  ['Bakery', 'food', 60, 180, ['cash', 'upi']],
+  ['Bakery', 'food', 60, 180, ['cash', 'bank']],
   ['Samosa run', 'food', 30, 90, ['cash']],
 ];
 const COMMUTE = [
-  ['Metro', 'transport', 30, 90, ['upi']],
-  ['Auto to office', 'transport', 70, 180, ['cash', 'upi']],
-  ['Uber', 'transport', 160, 420, ['upi', 'card']],
-  ['Ola', 'transport', 150, 390, ['upi']],
-  ['Rapido', 'transport', 45, 120, ['upi']],
+  ['Metro', 'transport', 30, 90, ['bank']],
+  ['Auto to office', 'transport', 70, 180, ['cash', 'bank']],
+  ['Uber', 'transport', 160, 420, ['bank', 'card']],
+  ['Ola', 'transport', 150, 390, ['bank']],
+  ['Rapido', 'transport', 45, 120, ['bank']],
 ];
 const OCCASIONAL = [
-  ['PVR, two tickets', 'entertainment', 400, 900, ['card', 'upi']],
+  ['PVR, two tickets', 'entertainment', 400, 900, ['card', 'bank']],
   ['Netflix', 'entertainment', 199, 649, ['card']],
   ['Spotify', 'entertainment', 119, 179, ['card']],
-  ['Pharmacy', 'health', 120, 900, ['cash', 'upi']],
+  ['Pharmacy', 'health', 120, 900, ['cash', 'bank']],
   ['Gym, monthly', 'health', 900, 2200, ['card']],
   ['Doctor visit', 'health', 500, 1200, ['cash']],
   ['Amazon order', 'shopping', 350, 2600, ['card']],
@@ -59,10 +67,10 @@ const OCCASIONAL = [
   ['Stationery', 'education', 80, 400, ['cash']],
 ];
 const GROCERY = [
-  ['D-Mart, weekly run', 'groceries', 1200, 3800, ['card', 'upi']],
-  ['BigBasket', 'groceries', 800, 2600, ['upi', 'card']],
+  ['D-Mart, weekly run', 'groceries', 1200, 3800, ['card', 'bank']],
+  ['BigBasket', 'groceries', 800, 2600, ['bank', 'card']],
   ['Sabzi mandi', 'groceries', 180, 620, ['cash']],
-  ['Milk and eggs', 'groceries', 60, 220, ['cash', 'upi']],
+  ['Milk and eggs', 'groceries', 60, 220, ['cash', 'bank']],
 ];
 const BIG = [
   ['Flight to Delhi', 'transport', 4200, 11000, ['card']],
@@ -75,9 +83,9 @@ const BIG = [
 /**
  * Generate a plausible ledger.
  * @param {{today: string, makeId: () => string, months?: number, seed?: number}} opts
- * @returns {Array} expenses, oldest first
+ * @returns {Array} transactions, oldest first
  */
-export function generateSampleExpenses({ today, makeId, months = 3, seed = 20250813 }) {
+export function generateSampleTransactions({ today, makeId, months = 3, seed = 20250813 }) {
   const rand = mulberry32(seed);
   const pick = (list) => list[Math.floor(rand() * list.length)];
   const between = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
@@ -85,17 +93,54 @@ export function generateSampleExpenses({ today, makeId, months = 3, seed = 20250
 
   const out = [];
   let clock = 0;
-  const add = (date, [note, categoryId, lo, hi, methods]) => {
+  // Deterministic and monotonic, so same-day order is stable.
+  const stamp = () => {
     clock += 1;
+    return new Date(Date.UTC(2020, 0, 1) + clock * 60000).toISOString();
+  };
+
+  const add = (date, [note, categoryId, lo, hi, accounts]) => {
     out.push({
       id: makeId(),
+      kind: 'transaction',
+      direction: 'expense',
       amountPaise: between(lo, hi) * 100,
       date,
+      accountId: pick(accounts),
+      toAccountId: null,
       categoryId,
       note,
-      // Deterministic and monotonic, so same-day order is stable.
-      createdAt: new Date(Date.UTC(2020, 0, 1) + clock * 60000).toISOString(),
-      paymentMethod: pick(methods),
+      createdAt: stamp(),
+    });
+  };
+
+  const earn = (date, note, categoryId, lo, hi, accountId = 'bank') => {
+    out.push({
+      id: makeId(),
+      kind: 'transaction',
+      direction: 'income',
+      amountPaise: between(lo, hi) * 100,
+      date,
+      accountId,
+      toAccountId: null,
+      categoryId,
+      note,
+      createdAt: stamp(),
+    });
+  };
+
+  const move = (date, note, lo, hi, from, to) => {
+    out.push({
+      id: makeId(),
+      kind: 'transfer',
+      direction: null,
+      amountPaise: between(lo, hi) * 100,
+      date,
+      accountId: from,
+      toAccountId: to,
+      categoryId: null,
+      note,
+      createdAt: stamp(),
     });
   };
 
@@ -110,14 +155,21 @@ export function generateSampleExpenses({ today, makeId, months = 3, seed = 20250
       const weekend = dow === 0 || dow === 6;
       const dayOfMonth = Number(date.slice(8));
 
-      // The monthly fixtures: rent on the 1st, bills in the first week.
+      // The monthly fixtures: salary on the 1st, rent behind it, bills after.
       if (dayOfMonth === 1) {
-        add(date, ['Flat rent', 'rent', 28000, 32000, ['upi']]);
+        earn(date, 'Salary', 'salary', 82000, 86000);
+        add(date, ['Flat rent', 'rent', 28000, 32000, ['bank']]);
         add(date, ['Broadband', 'rent', 799, 1299, ['card']]);
       }
-      if (dayOfMonth === 4) add(date, ['Electricity bill', 'rent', 900, 3200, ['upi']]);
-      if (dayOfMonth === 7) add(date, ['Phone recharge', 'rent', 239, 799, ['upi']]);
-      if (dayOfMonth === 12) add(date, ['Society maintenance', 'rent', 1800, 2600, ['upi']]);
+      if (dayOfMonth === 4) add(date, ['Electricity bill', 'rent', 900, 3200, ['bank']]);
+      // Last month's card bill, paid off. Money moved, nothing spent.
+      if (dayOfMonth === 5) move(date, 'Card bill', 6000, 14000, 'bank', 'card');
+      if (dayOfMonth === 7) add(date, ['Phone recharge', 'rent', 239, 799, ['bank']]);
+      if (dayOfMonth === 9) move(date, 'ATM withdrawal', 2000, 6000, 'bank', 'cash');
+      if (dayOfMonth === 12) add(date, ['Society maintenance', 'rent', 1800, 2600, ['bank']]);
+      if (dayOfMonth === 18 && chance(0.5)) {
+        earn(date, 'Refund', 'refunds', 200, 2400, 'card');
+      }
 
       // Daily life.
       if (chance(0.75)) add(date, pick(BREAKFAST));
@@ -134,7 +186,7 @@ export function generateSampleExpenses({ today, makeId, months = 3, seed = 20250
       if (chance(0.012)) add(date, pick(BIG));
 
       // Fuel roughly every ten days.
-      if (dayOfMonth % 10 === 3) add(date, ['Petrol', 'transport', 1200, 2600, ['card', 'upi']]);
+      if (dayOfMonth % 10 === 3) add(date, ['Petrol', 'transport', 1200, 2600, ['card', 'bank']]);
     }
   }
 

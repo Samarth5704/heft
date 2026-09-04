@@ -6,7 +6,8 @@
  * and no view mutates another view's DOM.
  *
  * Snapshot shape:
- *   { data: { schemaVersion, transactions, accounts, categories, settings },
+ *   { data: { schemaVersion, transactions, accounts, categories, budgets,
+ *             settings },
  *     ui:   { filters, saveError, loadWarning, readOnly, pendingDelete } }
  */
 
@@ -19,8 +20,8 @@ import {
 } from './lib/storage.js';
 import { clearedState, mergeStates, replaceWith } from './lib/backup.js';
 import { DEFAULT_FILTERS, makeFilters } from './lib/filters.js';
-import { today as todayISO } from './lib/dates.js';
-import { generateSampleTransactions } from './lib/sample-data.js';
+import { addMonths, today as todayISO } from './lib/dates.js';
+import { generateSampleBudgets, generateSampleTransactions } from './lib/sample-data.js';
 
 const SAVE_DEBOUNCE_MS = 400;
 export const UNDO_WINDOW_MS = 8000;
@@ -104,7 +105,9 @@ export function createStore({
   /* ---------------------------------------------------------- lifecycle */
 
   function init() {
-    const result = loadState(backend, key);
+    // `now` is injected, so which month a v2 category budget migrates into is
+    // decided by the caller and is reproducible in a test.
+    const result = loadState(backend, key, { today: now() });
     data = result.state;
     loadWarning = result.ok ? null : result.reason;
     readOnly = result.reason === 'future-schema';
@@ -317,7 +320,6 @@ export function createStore({
       name: clean,
       kind,
       colorToken,
-      budgetPaise: null,
       icon,
       archived: false,
     }, data.categories.length);
@@ -365,8 +367,17 @@ export function createStore({
     if (settings.defaultExpenseCategoryId === id) settings.defaultExpenseCategoryId = EXPENSE_SINK_ID;
     if (settings.defaultIncomeCategoryId === id) settings.defaultIncomeCategoryId = INCOME_SINK_ID;
 
+    // Its budgets go with it. A budget against a category that no longer
+    // exists is money planned for nothing, and it would still be counted in
+    // the period's budgeted total while having no row to appear in.
+    const budgets = {};
+    for (const [key, month] of Object.entries(data.budgets ?? {})) {
+      const { [id]: _dropped, ...rest } = month;
+      if (Object.keys(rest).length) budgets[key] = rest;
+    }
+
     const removed = data.transactions.length - transactions.length;
-    data = { ...data, transactions, categories, settings };
+    data = { ...data, transactions, categories, budgets, settings };
     commit();
     return { ok: true, removedTransactions: removed };
   }
@@ -374,6 +385,133 @@ export function createStore({
   /** Keep the history, take it off the picker. The default for anything used. */
   const archiveCategory = (id) => updateCategory(id, { archived: true });
   const restoreCategory = (id) => updateCategory(id, { archived: false });
+
+  /**
+   * Move every transaction out of one category and archive the empty husk.
+   *
+   * Merging is not deleting: the source keeps existing, archived, so a report
+   * over a period before the merge still resolves its name rather than
+   * printing an id. Both categories must be the same kind — merging an income
+   * category into an expense one would turn every record under it into a kind
+   * mismatch, which the validator would then silently re-home into a sink.
+   */
+  function mergeCategory(fromId, toId) {
+    const stop = blocked();
+    if (stop) return stop;
+
+    const from = categoryById(fromId);
+    const to = categoryById(toId);
+    if (!from || !to) return { ok: false, reason: 'not-found' };
+    if (fromId === toId) return { ok: false, reason: 'same-category' };
+    if ((from.kind ?? 'expense') !== (to.kind ?? 'expense')) {
+      return { ok: false, reason: 'kind-mismatch' };
+    }
+
+    const moved = countTransactionsIn(data.transactions, fromId);
+    const transactions = reassignCategory(data.transactions, fromId, toId);
+    const categories = data.categories.map(
+      (c) => (c.id === fromId ? { ...c, archived: true } : c),
+    );
+
+    // A budget on the source is money planned for a category that no longer
+    // receives anything. It moves too, added to whatever the target already
+    // had for that month, so the plan for the period does not quietly shrink.
+    const budgets = {};
+    for (const [key, month] of Object.entries(data.budgets ?? {})) {
+      if (!Object.hasOwn(month, fromId)) {
+        budgets[key] = month;
+        continue;
+      }
+      const { [fromId]: fromPaise, ...rest } = month;
+      budgets[key] = { ...rest, [toId]: (month[toId] ?? 0) + fromPaise };
+    }
+
+    const settings = { ...data.settings };
+    if (settings.defaultExpenseCategoryId === fromId) settings.defaultExpenseCategoryId = toId;
+    if (settings.defaultIncomeCategoryId === fromId) settings.defaultIncomeCategoryId = toId;
+
+    data = { ...data, transactions, categories, budgets, settings };
+    commit();
+    return { ok: true, moved, from, to };
+  }
+
+  /* ----------------------------------------------------------- budgets --
+     A budget belongs to a month and a category. There is no budget field on a
+     category, and no budget that applies to every month there has ever been. */
+
+  /**
+   * @param {string} key 'YYYY-MM'
+   * @param {number|null} paise a non-negative integer, or null to stop
+   *   tracking the category in that month — which is not the same as setting
+   *   it to zero, and the two must stay tellable apart.
+   */
+  function setBudget(key, categoryId, paise) {
+    const stop = blocked();
+    if (stop) return stop;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(key))) return { ok: false, reason: 'bad-month' };
+
+    const category = categoryById(categoryId);
+    if (!category) return { ok: false, reason: 'not-found' };
+    // Budgets are for spending. An income category has nothing to pace against,
+    // and offering one would put income into a "spent" figure.
+    if ((category.kind ?? 'expense') !== 'expense') return { ok: false, reason: 'not-expense' };
+
+    const month = { ...(data.budgets?.[key] ?? {}) };
+    if (paise === null) {
+      delete month[categoryId];
+    } else if (Number.isSafeInteger(paise) && paise >= 0) {
+      month[categoryId] = paise;
+    } else {
+      return { ok: false, reason: 'invalid-amount' };
+    }
+
+    const budgets = { ...data.budgets };
+    // An empty month is dropped rather than kept as {}, so "does this month
+    // budget anything" never has two different-looking true answers.
+    if (Object.keys(month).length) budgets[key] = month;
+    else delete budgets[key];
+
+    data = { ...data, budgets };
+    commit();
+    return { ok: true, budgetPaise: paise };
+  }
+
+  const clearBudget = (key, categoryId) => setBudget(key, categoryId, null);
+
+  /**
+   * Copy the month before each of `keys` into it — the affordance that makes
+   * budgets survive past their first month.
+   *
+   * It **adds** rather than replaces: a category already budgeted in the
+   * target month keeps the figure that is there. Copying is meant to save
+   * retyping last month's plan, not to overwrite a decision made since.
+   */
+  function copyBudgetsFromPrevious(keys = []) {
+    const stop = blocked();
+    if (stop) return stop;
+
+    const budgets = { ...data.budgets };
+    let copied = 0;
+
+    for (const key of keys) {
+      const source = budgets[addMonths(key, -1)];
+      if (!source) continue;
+      const month = { ...(budgets[key] ?? {}) };
+      for (const [categoryId, paise] of Object.entries(source)) {
+        if (Object.hasOwn(month, categoryId)) continue;
+        if (!categoryById(categoryId)) continue;
+        month[categoryId] = paise;
+        copied += 1;
+      }
+      if (Object.keys(month).length) budgets[key] = month;
+    }
+
+    if (copied === 0) return { ok: false, reason: 'nothing-to-copy' };
+
+    data = { ...data, budgets };
+    commit();
+    return { ok: true, copied };
+  }
 
   /* ---------------------------------------------------------- accounts */
 
@@ -489,7 +627,11 @@ export function createStore({
       ...(seed === undefined ? {} : { seed }),
     });
 
-    data = { ...data, accounts, transactions };
+    // A plan alongside the ledger, so the Budgets tab demonstrates both of
+    // its sections rather than opening on an empty heading.
+    const budgets = generateSampleBudgets({ today: now(), months });
+
+    data = { ...data, accounts, transactions, budgets };
     commit();
     return { ok: true, count: transactions.length };
   }
@@ -501,6 +643,30 @@ export function createStore({
     commitPendingDelete();
     const removed = data.transactions.length;
     data = clearedState(data);
+    commit();
+    return { ok: true, removed };
+  }
+
+  /**
+   * Back to a fresh install: no records, no accounts or categories of your
+   * own, no plan, no preferences. Distinct from `clearAll`, which empties the
+   * ledger and keeps everything you set up around it — two different things
+   * someone might want, and collapsing them into one button is how the wrong
+   * one gets pressed.
+   *
+   * The theme is the single exception. It is a property of this browser
+   * rather than of the data, and flipping someone into a light screen at the
+   * moment they wipe their ledger is a jolt with nothing to do with what they
+   * asked for.
+   */
+  function resetAll() {
+    const stop = blocked();
+    if (stop) return stop;
+    commitPendingDelete();
+    const removed = data.transactions.length;
+    const theme = data.settings.theme;
+    const fresh = defaultState();
+    data = { ...fresh, settings: { ...fresh.settings, theme } };
     commit();
     return { ok: true, removed };
   }
@@ -568,6 +734,10 @@ export function createStore({
     deleteCategory,
     archiveCategory,
     restoreCategory,
+    mergeCategory,
+    setBudget,
+    clearBudget,
+    copyBudgetsFromPrevious,
     addAccount,
     updateAccount,
     deleteAccount,
@@ -576,6 +746,7 @@ export function createStore({
     importState,
     loadSampleData,
     clearAll,
+    resetAll,
     replaceAll,
     setSetting,
     dismissSaveError,

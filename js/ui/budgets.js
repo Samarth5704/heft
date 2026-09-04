@@ -1,292 +1,346 @@
 /**
- * budgets.js — per-category monthly budgets, and how you are tracking.
+ * budgets.js — the Budgets tab.
  *
- * All the arithmetic lives in lib/analytics.js and is tested there; this
- * module decides what to say and draws it.
+ * Two sections. What is budgeted for the period on screen, and what is not —
+ * and the second is the one that matters most, because money outside every
+ * budget is the money that goes unnoticed. It is itemised, with its own total
+ * stated in full, and every row in it is one tap from having a plan.
  *
- * A deliberate difference from the charts: budgets ignore the narrowing
- * filters. "Food & Dining: ₹0 of ₹5,000" while you happen to be filtered to
- * Transport would be a lie. A budget is a fact about the month, not about
- * whatever you are currently looking at.
+ * **Budgets are monthly.** The period bar offers six modes; storing six
+ * parallel sets of budgets would let them disagree, so one monthly figure is
+ * prorated across whatever the period covers (`analytics.budgetForRange`). A
+ * whole month gets exactly its own figure; a week gets its share of the
+ * month; six months add up. The sheet says so, every time, rather than
+ * leaving a weekly view looking as though it had its own separate plan.
  *
- * The bars are aria-hidden. Every number they encode — spent, budget,
- * percentage, pace, projection — is already adjacent readable text, so a
- * progressbar role would only repeat it.
+ * Pace is the second thing this tab exists for:
+ *
+ *   expectedSpend = budget x (daysElapsed / daysInPeriod)
+ *
+ * with today counted as elapsed. For a period that has already ended, pace is
+ * meaningless — there is nothing left to predict — so the row reports the
+ * result instead. That distinction lives in `analytics.paceForRange` and is
+ * only rendered here.
  */
 
-import { formatAmount, formatINR } from '../lib/money.js';
-import { formatMonth } from '../lib/dates.js';
-import { budgetReport } from '../lib/analytics.js';
+import { anchorOf } from '../lib/router.js';
+import { addMonths, formatMonth, monthsInRange, periodRange } from '../lib/dates.js';
+import { budgetReportForRange } from '../lib/analytics.js';
+import { money } from '../lib/format.js';
+import { toPaise, toRupeeString } from '../lib/money.js';
+import { categoryChip, icon } from './icon.js';
 
-const NEAR_THRESHOLD = 0.85;
+const $ = (id) => document.getElementById(id);
 
-/** How much of the budget is consumed, as a word. Never colour alone. */
-function consumptionState(ratio) {
-  if (ratio === null) return 'none';
-  if (ratio > 1) return 'over';
-  if (ratio >= NEAR_THRESHOLD) return 'near';
-  return 'under';
-}
+export function createBudgets({ store, router, announce, today }) {
+  const els = {
+    scope: $('budget-scope'),
+    overall: $('budget-overall'),
+    overallSpent: $('budget-overall-spent'),
+    overallOf: $('budget-overall-of'),
+    overallTrack: $('budget-overall-track'),
+    overallFill: $('budget-overall-fill'),
+    overallPace: $('budget-overall-pace'),
+    overallStatus: $('budget-overall-status'),
+    list: $('budget-list'),
+    listEmpty: $('budget-list-empty'),
+    unbudgeted: $('budget-unbudgeted'),
+    unbudgetedTotal: $('budget-unbudgeted-total'),
+    unbudgetedNote: $('budget-unbudgeted-note'),
+    copy: $('budget-copy'),
+    dialog: $('budget-dialog'),
+    amount: $('budget-amount'),
+    amountError: $('budget-amount-error'),
+    amountHelp: $('budget-amount-help'),
+    forLine: $('budget-for'),
+    remove: $('budget-remove'),
+    template: $('tpl-budget'),
+    unsetTemplate: $('tpl-unbudgeted'),
+  };
 
-/**
- * The sentence under the bar.
- *
- * Pace is only meaningful while a month is still running. For a finished
- * month there is nothing to keep up with, so report the result instead.
- */
-export function paceSentence(row) {
-  const {
-    status, deltaPaise, remainingPaise, projectedPaise, budgetPaise, spentPaise,
-    daysElapsed, daysInMonth,
-  } = row;
+  $('budget-cancel').prepend(icon('close'));
 
-  if (status === 'no-budget') return 'Untracked';
-  if (status === 'upcoming') return 'Not started yet';
+  let snap = store.getState();
+  /** The category the sheet is editing, and the months it will write to. */
+  let editing = null;
 
-  if (status === 'over') {
-    return `Finished ${formatINR(spentPaise - budgetPaise)} over budget`;
+  const display = () => ({ showDecimals: snap.data.settings.showDecimals !== false });
+  const amount = (paise) => money(paise, display());
+  const weekStart = () => snap.data.settings.weekStartsOn ?? 1;
+  const rangeOf = (route) => periodRange(route.mode, anchorOf(route, today), weekStart());
+
+  /* ------------------------------------------------------------- copy --
+     Budgets are per month; the copy is per month too. For a period covering
+     several, each of them takes from the month before it. */
+
+  const monthsOf = (range) => monthsInRange(range);
+
+  /** Is there anything in the preceding months that is not already here? */
+  function canCopy(range) {
+    const budgets = snap.data.budgets ?? {};
+    return monthsOf(range).some((key) => {
+      const previous = budgets[addMonths(key, -1)];
+      if (!previous) return false;
+      const current = budgets[key] ?? {};
+      return Object.keys(previous).some((id) => !Object.hasOwn(current, id));
+    });
   }
-  if (status === 'under') {
-    return `Finished ${formatINR(budgetPaise - spentPaise)} under budget`;
-  }
 
-  const projection = projectedPaise === null
-    ? ''
-    : ` · on this pace, ${formatINR(projectedPaise)} by month end`;
-
-  const left = remainingPaise >= 0
-    ? `${formatINR(remainingPaise)} left`
-    : `${formatINR(-remainingPaise)} over`;
-
-  if (status === 'on-track') {
-    return `On track · ${left}${projection}`;
-  }
-  const direction = status === 'ahead' ? 'ahead of pace' : 'behind pace';
-  const day = `day ${daysElapsed} of ${daysInMonth}`;
-  return `${formatINR(Math.abs(deltaPaise))} ${direction} on ${day} · ${left}${projection}`;
-}
-
-export function createBudgets({
-  root, rowTemplate, emptyNode, scopeNode, onEdit,
-}) {
-  function buildRow({ label, colorToken, row, isOverall }) {
-    const item = rowTemplate.content.firstElementChild.cloneNode(true);
-    const ratio = row.ratio;
-    const state = consumptionState(ratio);
-
-    item.dataset.state = state;
-    if (isOverall) item.dataset.overall = 'true';
-
-    const dot = item.querySelector('.cat-dot');
-    if (colorToken) dot.style.setProperty('--cat', `var(--${colorToken})`);
-    else dot.remove();
-
-    item.querySelector('.budget-label').textContent = label;
-
-    const figures = item.querySelector('.budget-figures');
-    const spent = document.createElement('span');
-    spent.className = 'budget-spent';
-    spent.textContent = formatINR(row.spentPaise);
-    const of = document.createElement('span');
-    of.className = 'budget-of';
-    of.textContent = ` of ${formatINR(row.budgetPaise)}`;
-    const share = document.createElement('span');
-    share.className = 'budget-percent';
-    share.textContent = `${Math.round((ratio ?? 0) * 100)}%`;
-    figures.replaceChildren(spent, of, share);
-
-    const fill = item.querySelector('.budget-fill');
-    fill.style.inlineSize = `${Math.min(1, Math.max(0, ratio ?? 0)) * 100}%`;
-
-    // A tick showing where the budget says you should be today. Pace becomes
-    // something you can see, not only something the sentence claims.
-    const mark = item.querySelector('.budget-pace-mark');
-    if (row.status === 'ahead' || row.status === 'behind' || row.status === 'on-track') {
-      const expectedRatio = row.budgetPaise ? row.expectedPaise / row.budgetPaise : 0;
-      mark.style.insetInlineStart = `${Math.min(100, expectedRatio * 100)}%`;
-    } else {
-      mark.remove();
+  els.copy.addEventListener('click', () => {
+    const range = rangeOf(router.route);
+    const result = store.copyBudgetsFromPrevious(monthsOf(range));
+    if (!result.ok) {
+      announce.say('There is nothing in the previous period that is not already budgeted here.');
+      return;
     }
+    announce.say(
+      `Copied ${result.copied} budget${result.copied === 1 ? '' : 's'} forward. `
+      + 'Anything already set for this period was left as it was.',
+    );
+  });
 
-    item.querySelector('.budget-status').textContent = paceSentence(row);
-    return item;
-  }
-
-  function unbudgetedRow(paise, categoryCount) {
-    const item = document.createElement('li');
-    item.className = 'budget-row budget-unbudgeted';
-    const head = document.createElement('div');
-    head.className = 'budget-head';
-
-    const label = document.createElement('span');
-    label.className = 'budget-name';
-    label.textContent = 'Outside any budget';
-
-    const value = document.createElement('span');
-    value.className = 'budget-figures num';
-    value.textContent = formatINR(paise);
-
-    head.append(label, value);
-
-    const note = document.createElement('p');
-    note.className = 'budget-status';
-    note.textContent = paise === 0
-      ? 'Everything this month fell inside a budget.'
-      : `Spent in ${categoryCount} untracked ${categoryCount === 1 ? 'category' : 'categories'}. Give them budgets and this becomes visible in the totals above.`;
-
-    item.append(head, note);
-    return item;
-  }
+  /* ------------------------------------------------------------ the sheet */
 
   /**
-   * @param {{expenses: object[], categories: object[], monthKey: string,
-   *          today: string}} ctx
+   * The sheet always edits a *monthly* figure, and always says which months
+   * it will land in. A period of one month names that month; a longer one
+   * names the span and applies the same figure to each, which is what "a
+   * monthly budget" means over six months.
    */
-  function render({ expenses, categories, monthKey: key, today }) {
-    const report = budgetReport(expenses, categories, key, today);
-    const hasBudgets = report.budgeted.length > 0;
+  function openSheet(row, trigger) {
+    const range = rangeOf(router.route);
+    const months = monthsOf(range);
+    editing = { categoryId: row.categoryId, name: row.name, months };
 
-    scopeNode.textContent = formatMonth(key);
-    emptyNode.hidden = hasBudgets;
-    root.hidden = !hasBudgets;
+    $('budget-dialog-title').textContent = row.budgetPaise === null
+      ? 'Set budget'
+      : 'Edit budget';
 
-    if (!hasBudgets) {
-      root.replaceChildren();
-      return;
-    }
+    els.forLine.replaceChildren();
+    const strong = document.createElement('strong');
+    strong.textContent = row.name;
+    els.forLine.append(strong, ` — ${amount(row.spentPaise)} spent in ${range.label}.`);
 
-    const untrackedWithSpend = report.rows
-      .filter((r) => r.budgetPaise === null && r.spentPaise > 0).length;
+    // Prefill with the monthly figure, not the period figure: the input is
+    // labelled "Monthly budget" and must round-trip what it shows.
+    const first = snap.data.budgets?.[months[0]]?.[row.categoryId];
+    els.amount.value = Number.isFinite(first) ? toRupeeString(first) : '';
+    els.amountError.textContent = '';
+    els.amount.setAttribute('aria-invalid', 'false');
 
-    root.replaceChildren(
-      buildRow({
-        label: 'All budgeted categories',
-        colorToken: null,
-        row: report.overall,
-        isOverall: true,
-      }),
-      ...report.budgeted
-        .slice()
-        .sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0))
-        .map((row) => {
-          const category = categories.find((c) => c.id === row.categoryId);
-          return buildRow({
-            label: row.name,
-            colorToken: category?.colorToken ?? 'cat-neutral',
-            row,
-          });
-        }),
-      unbudgetedRow(report.unbudgetedPaise, untrackedWithSpend),
-    );
+    els.amountHelp.textContent = months.length === 1
+      ? `A monthly figure, applied to ${formatMonth(months[0])}.`
+      : `A monthly figure, applied to each of the ${months.length} months from `
+        + `${formatMonth(months[0])} to ${formatMonth(months[months.length - 1])}. `
+        + `This period's budget is that figure ${months.length} times over.`;
+
+    els.remove.hidden = row.budgetPaise === null;
+
+    els.dialog.returnFocusTo = trigger ?? document.activeElement;
+    els.dialog.showModal();
+    els.amount.focus();
+    els.amount.select();
   }
 
-  if (onEdit) {
-    for (const button of document.querySelectorAll('[data-action="edit-budgets"]')) {
-      button.addEventListener('click', () => onEdit(button));
-    }
-  }
-
-  return { render };
-}
-
-/* ------------------------------------------------------------- the dialog */
-
-export function createBudgetDialog({ dialog, onSave, announce }) {
-  const form = dialog.querySelector('#budget-form');
-  const list = dialog.querySelector('#budget-fields');
-  const errorNode = dialog.querySelector('#budget-form-error');
-  let returnFocusTo = null;
-  let fields = [];
-
-  function open({ categories, trigger }) {
-    returnFocusTo = trigger ?? null;
-    errorNode.textContent = '';
-
-    fields = categories.map((category, i) => {
-      const row = document.createElement('div');
-      row.className = 'budget-field';
-
-      const label = document.createElement('label');
-      label.className = 'budget-field-label';
-      label.htmlFor = `budget-input-${i}`;
-
-      const dot = document.createElement('span');
-      dot.className = 'cat-dot';
-      dot.setAttribute('aria-hidden', 'true');
-      dot.style.setProperty('--cat', `var(--${category.colorToken})`);
-      label.append(dot, category.name);
-
-      const wrap = document.createElement('div');
-      wrap.className = 'input-wrap';
-      const prefix = document.createElement('span');
-      prefix.className = 'input-prefix';
-      prefix.setAttribute('aria-hidden', 'true');
-      prefix.textContent = '₹';
-
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.inputMode = 'decimal';
-      input.autocomplete = 'off';
-      input.id = `budget-input-${i}`;
-      input.placeholder = 'Untracked';
-      input.value = category.budgetPaise === null || category.budgetPaise === undefined
-        ? ''
-        : String(Math.round(category.budgetPaise / 100));
-      input.setAttribute('aria-describedby', 'budget-hint');
-
-      wrap.append(prefix, input);
-      row.append(label, wrap);
-      return { category, row, input };
-    });
-
-    list.replaceChildren(...fields.map((f) => f.row));
-    dialog.showModal();
-    fields[0]?.input.focus();
-    fields[0]?.input.select();
-  }
-
-  form.addEventListener('submit', (event) => {
+  $('budget-form').addEventListener('submit', (event) => {
     event.preventDefault();
+    if (!editing) return;
 
-    const changes = [];
-    let firstBad = null;
-    for (const field of fields) {
-      const raw = field.input.value.trim();
-      field.input.setAttribute('aria-invalid', 'false');
-
-      // Blank means untracked, which is not the same as a budget of zero.
-      if (raw === '') {
-        changes.push({ id: field.category.id, budgetPaise: null });
-        continue;
-      }
-      // Budgets are whole rupees; nobody budgets to the paise.
-      const rupees = Number(raw.replace(/[₹,\s]/g, ''));
-      if (!Number.isFinite(rupees) || rupees < 0 || !Number.isInteger(rupees)) {
-        field.input.setAttribute('aria-invalid', 'true');
-        firstBad = firstBad ?? field.input;
-        continue;
-      }
-      changes.push({ id: field.category.id, budgetPaise: rupees * 100 });
-    }
-
-    if (firstBad) {
-      errorNode.textContent = 'Budgets must be whole rupees, or blank to leave a category untracked.';
-      firstBad.focus();
+    const paise = toPaise(els.amount.value);
+    if (paise === null || paise < 0) {
+      els.amountError.textContent = 'Enter an amount, like 6000 or 1,200.50.';
+      els.amount.setAttribute('aria-invalid', 'true');
+      els.amount.focus();
       return;
     }
 
-    onSave(changes);
-    dialog.close();
+    let failed = null;
+    for (const key of editing.months) {
+      const result = store.setBudget(key, editing.categoryId, paise);
+      if (!result.ok) failed = result.reason;
+    }
+    if (failed) {
+      els.amountError.textContent = `Could not save that budget: ${failed}.`;
+      els.amount.setAttribute('aria-invalid', 'true');
+      return;
+    }
+
+    const where = editing.months.length === 1
+      ? formatMonth(editing.months[0])
+      : `each of ${editing.months.length} months`;
+    announce.say(`${editing.name} budgeted at ${amount(paise)} for ${where}.`);
+    els.dialog.close();
   });
 
-  for (const id of ['budget-cancel', 'budget-close']) {
-    dialog.querySelector(`#${id}`).addEventListener('click', () => dialog.close());
+  els.remove.addEventListener('click', () => {
+    if (!editing) return;
+    for (const key of editing.months) store.clearBudget(key, editing.categoryId);
+    announce.say(`${editing.name} is no longer budgeted. Its spending moves to the unbudgeted list.`);
+    els.dialog.close();
+  });
+
+  $('budget-cancel').addEventListener('click', () => els.dialog.close());
+
+  els.dialog.addEventListener('close', () => {
+    editing = null;
+    const back = els.dialog.returnFocusTo;
+    if (back && document.contains(back)) back.focus();
+    els.dialog.returnFocusTo = null;
+  });
+
+  /* ------------------------------------------------------------ the rows */
+
+  /**
+   * The pace sentence.
+   *
+   * A period that has ended cannot be paced — there is nothing left to
+   * predict — so it reports what happened. A period that has not started
+   * says so rather than claiming to be perfectly on track.
+   */
+  function paceText(row) {
+    if (row.isFuture) return 'This period has not started yet.';
+    if (row.isPast) {
+      const over = row.spentPaise - row.budgetPaise;
+      return over > 0
+        ? `Finished ${amount(over)} over budget.`
+        : `Finished ${amount(-over)} under budget.`;
+    }
+    if (row.status === 'on-track') return 'On track.';
+    const delta = amount(Math.abs(row.deltaPaise));
+    return row.deltaPaise > 0 ? `${delta} ahead of pace.` : `${delta} behind pace.`;
   }
 
-  dialog.addEventListener('close', () => {
-    if (returnFocusTo && document.contains(returnFocusTo)) returnFocusTo.focus();
-    returnFocusTo = null;
+  /** The projection, always labelled as one. It is a rate carried forward,
+   *  not a promise, and a row that hid that would be lying about certainty. */
+  function projectionText(row) {
+    if (row.isPast || row.isFuture || row.projectedPaise === null) return '';
+    const verdict = row.projectedPaise > row.budgetPaise ? 'over' : 'within';
+    return `At this rate, projected to finish at ${amount(row.projectedPaise)} — ${verdict} budget.`;
+  }
+
+  /** Swap the template's placeholder chip for the category's own mark. */
+  function setChip(li, row, size) {
+    const chip = categoryChip(row.icon, row.colorToken, { size });
+    chip.classList.add('budget-chip');
+    li.querySelector('.budget-chip').replaceWith(chip);
+  }
+
+  function buildRow(row) {
+    const li = els.template.content.firstElementChild.cloneNode(true);
+    const button = li.querySelector('.budget-open');
+    li.dataset.state = row.state;
+
+    setChip(li, row, '2.25rem');
+    li.querySelector('.budget-name').textContent = row.name;
+    li.querySelector('.budget-spent').textContent = amount(row.spentPaise);
+    li.querySelector('.budget-of').textContent = `of ${amount(row.budgetPaise)}`;
+
+    const fill = li.querySelector('.budget-fill');
+    const ratio = row.budgetPaise > 0 ? row.spentPaise / row.budgetPaise : (row.spentPaise ? 1 : 0);
+    fill.style.setProperty('--fill', `${Math.min(100, Math.round(ratio * 100))}%`);
+
+    // Where the plan says you should be today. Meaningless once the period
+    // has ended, so it is not drawn then.
+    const mark = li.querySelector('.budget-pace');
+    if (!row.isPast && !row.isFuture && row.daysInPeriod) {
+      mark.hidden = false;
+      mark.style.setProperty('--at', `${Math.round((row.daysElapsed / row.daysInPeriod) * 100)}%`);
+    }
+
+    const status = paceText(row);
+    li.querySelector('.budget-status').textContent = status;
+    li.querySelector('.budget-projection').textContent = projectionText(row);
+
+    // The name carries the whole row, so it is never forty bare "Edit"s.
+    button.setAttribute(
+      'aria-label',
+      `Edit budget for ${row.name}: ${amount(row.spentPaise)} spent of `
+      + `${amount(row.budgetPaise)}. ${status}`,
+    );
+    button.addEventListener('click', () => openSheet(row, button));
+    return li;
+  }
+
+  function buildUnsetRow(row) {
+    const li = els.unsetTemplate.content.firstElementChild.cloneNode(true);
+    const button = li.querySelector('.budget-open');
+
+    setChip(li, row, '2rem');
+    li.querySelector('.budget-name').textContent = row.name;
+    li.querySelector('.budget-spent').textContent = amount(row.spentPaise);
+
+    button.setAttribute(
+      'aria-label',
+      row.spentPaise > 0
+        ? `Set a budget for ${row.name}. ${amount(row.spentPaise)} spent with no budget.`
+        : `Set a budget for ${row.name}. Nothing spent this period.`,
+    );
+    button.addEventListener('click', () => openSheet(row, button));
+    return li;
+  }
+
+  /* -------------------------------------------------------------- paint */
+
+  function paint(route = router.route) {
+    const range = rangeOf(route);
+    if (!range) return;
+
+    const report = budgetReportForRange(
+      snap.data.transactions,
+      snap.data.categories,
+      snap.data.budgets ?? {},
+      range,
+      today,
+    );
+
+    const months = monthsOf(range);
+    els.scope.textContent = months.length === 1
+      ? `${range.label}. Budgets are set per month.`
+      : `${range.label}. Budgets are set per month; this period covers ${months.length} of them.`;
+
+    /* ------- the overall row ------- */
+
+    const overall = report.overall;
+    els.overall.hidden = overall.budgetPaise === null;
+    if (overall.budgetPaise !== null) {
+      els.overall.dataset.state = overall.state;
+      els.overallSpent.textContent = amount(overall.spentPaise);
+      els.overallOf.textContent = `of ${amount(overall.budgetPaise)} budgeted`;
+      const ratio = overall.budgetPaise > 0 ? overall.spentPaise / overall.budgetPaise : 0;
+      els.overallFill.style.setProperty('--fill', `${Math.min(100, Math.round(ratio * 100))}%`);
+      if (!overall.isPast && !overall.isFuture && overall.daysInPeriod) {
+        els.overallPace.hidden = false;
+        els.overallPace.style.setProperty(
+          '--at', `${Math.round((overall.daysElapsed / overall.daysInPeriod) * 100)}%`,
+        );
+      } else {
+        els.overallPace.hidden = true;
+      }
+      els.overallStatus.textContent = `${paceText(overall)} ${projectionText(overall)}`.trim();
+    }
+
+    /* ------- budgeted ------- */
+
+    els.list.replaceChildren(...report.budgeted.map(buildRow));
+    els.listEmpty.hidden = report.budgeted.length > 0;
+    els.copy.hidden = !canCopy(range);
+
+    /* ------- not budgeted ------- */
+
+    els.unbudgetedTotal.textContent = amount(report.unbudgetedPaise);
+    els.unbudgetedNote.textContent = report.unbudgetedPaise > 0
+      ? `spent in ${range.label} outside every budget, across `
+        + `${report.unbudgeted.filter((r) => r.spentPaise > 0).length} `
+        + `categor${report.unbudgeted.filter((r) => r.spentPaise > 0).length === 1 ? 'y' : 'ies'}.`
+      : `spent outside a budget in ${range.label}.`;
+
+    els.unbudgeted.replaceChildren(...report.unbudgeted.map(buildUnsetRow));
+  }
+
+  store.subscribe((next) => {
+    snap = next;
+    if (router.route.tab === 'budgets') paint();
   });
 
-  return { open };
+  return { paint };
 }

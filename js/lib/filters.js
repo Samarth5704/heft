@@ -2,8 +2,8 @@
  * filters.js — the visible set, and the URL that describes it.
  *
  * Filters compose: period AND kind AND category AND account AND note search.
- * Pure: no DOM, no `location`. main.js does the reading and writing of the
- * actual hash; everything here is string in, object out.
+ * Pure: no DOM, no `location`. lib/router.js does the reading and writing of
+ * the actual hash; everything here is string in, object out.
  *
  * The period is a `{start, end}` range, not a month. Every view mode the
  * period stepper offers — daily through yearly — reduces to a range in

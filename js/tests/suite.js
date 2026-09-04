@@ -13,21 +13,38 @@ import {
 import {
   addDays, addMonths, compare, datesInMonth, dayOfWeek, daysInMonth,
   daysInMonthOf, diffDays, endOfMonth, formatRelativeDay, isLeapYear, isValid,
-  monthKey, periodRange, periodsEndingAt, startOfMonth, stepAnchor, today,
+  monthKey, monthsInRange, daysOfMonthInRange, periodRange, periodsEndingAt,
+  startOfMonth, stepAnchor, today, VIEW_MODES,
 } from '../lib/dates.js';
 import { parseQuickAdd, tokenize } from '../lib/parse.js';
+import { AA_TEXT, contrastRatio, meetsAA, parseHex, ratio2 } from '../lib/contrast.js';
+import {
+  ANALYSIS_VIEWS, DEFAULT_ROUTE, TABS, VIEW_MODES as ROUTE_VIEW_MODES, anchorOf,
+  parseRoute, periodFor, routeToHash, sameRoute,
+} from '../lib/router.js';
+import { money, netMoney, signedMoney } from '../lib/format.js';
+import { ICONS, ICON_NAMES, iconOrFallback } from '../lib/icons.js';
+import {
+  BUDGET_COLUMNS, TRANSACTION_COLUMNS, budgetsToCsv, csvDocument, csvField,
+  csvFilename, csvRow, paiseToDecimal, transactionsToCsv,
+} from '../lib/csv.js';
 import {
   accountBalance, accountBalances, budgetReport, budgetReportForRange, byCategory,
   carryOver, carryOverSeries, dailySpendStats, dailyTotals, dailyTotalsBetween,
   expenseByCategory, expenseTotalPaise, groupByDay, incomeByCategory,
   incomeTotalPaise, ledgerWeightScale, mean, median, monthDelta, monthOverMonth,
-  netPaise, netWorth, netWorthPaise, niceTicks, pace, percentile, periodComparison,
+  netPaise, netWorth, netWorthPaise, niceTicks, pace, paceForRange, percentile,
+  budgetForRange, budgetState, budgetedCategoryIds, periodComparison,
   periodTotals, projectMonthEnd, rollingAverage, topExpenses, totalPaise,
-  weightScale,
+  VIEWS, viewAmount, weightScale, dailySpendStatsForRange,
 } from '../lib/analytics.js';
 import {
   donutRingPath, donutSegments, linePath, polarToCartesian,
 } from '../lib/geometry.js';
+import {
+  MAX_SLICES, OTHER_SLICE_ID, barSpanFor, bucketDays, enforceMinShare,
+  groupSmallSlices, shadeFor, signedTicks,
+} from '../lib/chart.js';
 import {
   CURRENT_SCHEMA_VERSION, SEED_ACCOUNTS, SEED_CATEGORIES, SEED_INCOME_CATEGORIES,
   canDeleteAccount, canDeleteCategory, countTransactionsFor, countTransactionsIn,
@@ -384,6 +401,117 @@ export default function suite(t) {
     t.eq(tokenize('  a  b ').length, 2, 'tokenize collapses whitespace');
   }
 
+  /* The three kinds. `KCTX` is the full context a real quick-add line gets:
+     both category sets and the account list, because the kind is what
+     decides which of them the line is allowed to match against. */
+  const KCTX = {
+    categories: ALL_CATEGORIES, accounts: ACCOUNTS, today: TODAY,
+    defaultCategoryId: 'other', defaultAccountId: 'cash',
+  };
+
+  t.group('Parser — a leading + is income');
+
+  {
+    const income = parseQuickAdd('+5000 salary', KCTX);
+    t.eq(income.ok, true, "'+5000 salary' parses");
+    t.eq(income.kind, 'income', 'a leading + makes it income');
+    t.eq(income.amountPaise, 500000, 'the + is stripped before the amount is read');
+    t.eq(income.categoryId, 'salary', 'and the category is matched from the INCOME set');
+    t.eq(income.note, '', 'the category name is consumed from the note');
+    t.eq(income.toAccountId, null, 'income has no destination account');
+    t.eq(income.accountId, 'cash', 'income lands in the default account');
+
+    t.eq(parseQuickAdd('+ 5000 salary', KCTX).amountPaise, 500000, 'a detached + works too');
+    t.eq(parseQuickAdd('+1.2k refunds', KCTX).amountPaise, 120000, 'suffixes still apply after a +');
+    t.eq(parseQuickAdd('+5000 salary yesterday', KCTX).date, '2025-08-12', 'dates still parse');
+
+    // The kind gates which categories exist at all, in both directions.
+    const unmarked = parseQuickAdd('5000 salary', KCTX);
+    t.eq(unmarked.kind, 'expense', 'without a + it stays an expense');
+    t.eq(unmarked.categoryId, 'other', 'and CANNOT match the income category "salary"');
+    t.eq(unmarked.note, 'salary', 'the unmatched word survives as the note');
+
+    const marked = parseQuickAdd('+800 chai', KCTX);
+    t.eq(marked.kind, 'income', 'a + line is income');
+    t.eq(marked.categoryId, 'other', 'an expense synonym does not reach the income set');
+  }
+
+  t.group('Parser — "to" between two accounts is a transfer');
+
+  {
+    const move = parseQuickAdd('2000 bank to cash', KCTX);
+    t.eq(move.ok, true, "'2000 bank to cash' parses");
+    t.eq(move.kind, 'transfer', 'two accounts around "to" make a transfer');
+    t.eq(move.amountPaise, 200000, 'the amount is read as usual');
+    t.eq(move.accountId, 'bank', 'the name before "to" is the source');
+    t.eq(move.toAccountId, 'cash', 'the name after it is the destination');
+    t.eq(move.categoryId, null, 'A TRANSFER HAS NO CATEGORY: not a default, not a sink');
+    t.eq(move.note, '', 'the whole transfer expression is consumed');
+
+    t.eq(parseQuickAdd('2000 bank > cash', KCTX).kind, 'transfer', '> is accepted as a separator');
+    t.eq(parseQuickAdd('2000 bank → cash', KCTX).toAccountId, 'cash', 'so is an arrow');
+    t.eq(parseQuickAdd('2000 BANK to Cash', KCTX).kind, 'transfer', 'account names are case-insensitive');
+    t.eq(parseQuickAdd('bank to cash 2000 yesterday', KCTX).date, '2025-08-12',
+      'a transfer still takes a date');
+
+    // "to" is an ordinary English word. It only means transfer when both
+    // sides are real accounts — otherwise the line is untouched.
+    const gift = parseQuickAdd('250 lunch to mom', KCTX);
+    t.eq(gift.kind, 'expense', '"to" between two non-accounts is not a transfer');
+    t.eq(gift.note, 'lunch to mom', 'and the whole phrase survives as the note');
+    t.eq(parseQuickAdd('500 bank to mom', KCTX).kind, 'expense',
+      'one real account is not enough');
+    t.eq(parseQuickAdd('500 mom to bank', KCTX).kind, 'expense',
+      'in either position');
+
+    // Money cannot move from an account into itself.
+    const self = parseQuickAdd('2000 cash to cash', KCTX);
+    t.eq(self.ok, false, 'a self-transfer is refused');
+    t.eq(self.error, 'same-account', 'with an explicit reason');
+
+    // A transfer outranks the income marker: there is nowhere in a transfer
+    // for income to live.
+    t.eq(parseQuickAdd('+2000 cash to bank', KCTX).kind, 'transfer',
+      'a transfer separator beats the + marker');
+  }
+
+  t.group('Parser — when an account and a category share a name');
+
+  {
+    /* The ambiguous case, stated as data: a "Card" you spend on and a "Card"
+       you pay from. Both exist, both are called Card, and the line has to
+       resolve to exactly one of them. */
+    const collide = {
+      categories: [
+        ...ALL_CATEGORIES,
+        {
+          id: 'card-cat', name: 'Card', kind: 'expense', colorToken: 'cat-9',
+          budgetPaise: null, icon: 'other', archived: false,
+        },
+      ],
+      accounts: ACCOUNTS,   // seed accounts include one named 'Card'
+      today: TODAY,
+      defaultCategoryId: 'other',
+      defaultAccountId: 'cash',
+    };
+
+    // Documented rule 1: with no separator, account names are never consulted.
+    const plain = parseQuickAdd('2000 card', collide);
+    t.eq(plain.kind, 'expense', 'without a separator the line is an ordinary expense');
+    t.eq(plain.categoryId, 'card-cat', 'THE CATEGORY WINS: accounts are not read here at all');
+    t.eq(plain.accountId, 'cash', 'the account stays the default');
+    t.eq(plain.note, '', 'and the name is consumed as a category name');
+
+    // Documented rule 2: flanking a separator, the same word is an account.
+    const moved = parseQuickAdd('2000 bank to card', collide);
+    t.eq(moved.kind, 'transfer', 'the separator makes it a transfer');
+    t.eq(moved.toAccountId, 'card', 'THE ACCOUNT WINS on the far side of "to"');
+    t.eq(moved.categoryId, null, 'and the same-named category is not consulted');
+
+    t.eq(parseQuickAdd('2000 card to bank', collide).accountId, 'card',
+      'the account also wins on the near side');
+  }
+
   /* ======================================================= analytics === */
   t.group('Analytics — totals');
 
@@ -532,17 +660,15 @@ export default function suite(t) {
   t.group('Analytics — budget report');
 
   {
-    const cats = [
-      { ...CATEGORIES[0], budgetPaise: 1000000 },
-      { ...CATEGORIES[1], budgetPaise: null },
-      { ...CATEGORIES[8], budgetPaise: null },
-    ];
+    const cats = [CATEGORIES[0], CATEGORIES[1], CATEGORIES[8]].map((c) => ({ ...c }));
+    // The budget is a fact about August, not about the category.
+    const budgets = { '2025-08': { food: 1000000 } };
     const list = [
       expense('2025-08-02', 6000, 'food'),
       expense('2025-08-03', 2000, 'groceries'),
       expense('2025-08-04', 1000, 'other'),
     ];
-    const report = budgetReport(list, cats, '2025-08', TODAY);
+    const report = budgetReport(list, cats, budgets, '2025-08', TODAY);
     t.eq(report.budgeted.length, 1, 'only categories with a budget are budgeted');
     t.eq(report.unbudgetedPaise, 300000, 'spending outside a budget is never invisible');
     t.eq(report.overall.budgetPaise, 1000000, 'the overall budget is the sum of categories');
@@ -557,6 +683,228 @@ export default function suite(t) {
       'budgeted plus unbudgeted equals the month total, with nothing counted twice',
     );
     t.eq(report.monthTotalPaise, 900000, 'the month total is still reported');
+  }
+
+  t.group('Budgets — a monthly plan, read over any period');
+
+  {
+    // ₹6,200 for food in August; July deliberately untouched.
+    const budgets = { '2025-08': { food: 620000, transport: 0 } };
+
+    const august = periodRange('monthly', '2025-08-13');
+    t.eq(budgetForRange(budgets, 'food', august), 620000,
+      'a whole month gets exactly its own figure, with no arithmetic to drift by');
+
+    // 11–17 August is 7 of August's 31 days.
+    const week = periodRange('weekly', '2025-08-13');
+    t.eq(budgetForRange(budgets, 'food', week), Math.round((620000 * 7) / 31),
+      'a week gets the share of the month it actually covers');
+
+    const quarter = periodRange('3-month', '2025-08-13');
+    t.eq(budgetForRange(budgets, 'food', quarter), 620000,
+      'a window over three months adds up the months that are budgeted');
+
+    const july = periodRange('monthly', '2025-07-13');
+    t.eq(budgetForRange(budgets, 'food', july), null,
+      'a month with no entry is untracked, which is not a budget of zero');
+    t.eq(budgetForRange(budgets, 'transport', august), 0,
+      'and a budget of zero is a real plan, kept and reported as zero');
+    t.eq(budgetForRange(budgets, 'rent', august), null, 'an unbudgeted category is null');
+
+    // A week straddling a month boundary draws on both months.
+    const straddle = { start: '2025-07-28', end: '2025-08-03', label: 'straddle' };
+    t.deepEq(monthsInRange(straddle), ['2025-07', '2025-08'], 'the range names both months');
+    t.eq(daysOfMonthInRange('2025-07', straddle), 4, 'four days fall in July');
+    t.eq(daysOfMonthInRange('2025-08', straddle), 3, 'and three in August');
+    t.eq(
+      budgetForRange({ '2025-07': { food: 310000 }, '2025-08': { food: 620000 } }, 'food', straddle),
+      Math.round((310000 * 4) / 31) + Math.round((620000 * 3) / 31),
+      'and each month contributes only its own share',
+    );
+
+    t.deepEq([...budgetedCategoryIds(budgets, august)].sort(), ['food', 'transport'],
+      'the budgeted set is every category budgeted in any month the period covers');
+    t.eq(budgetedCategoryIds(budgets, july).size, 0, 'and is empty where nothing is budgeted');
+  }
+
+  t.group('Budgets — the three bands, and what is outside them');
+
+  {
+    t.eq(budgetState(0, null), 'none', 'no budget is not a state a bar can be drawn in');
+    t.eq(budgetState(4000, 10000), 'under', 'well inside is under');
+    t.eq(budgetState(8500, 10000), 'near', '85% of the money gone is the warning band');
+    t.eq(budgetState(10000, 10000), 'near',
+      'spending exactly the budget is not an overrun, but it is not "under" either — '
+      + 'there is nothing left, and the bar has to say so');
+    t.eq(budgetState(10001, 10000), 'over', 'a paisa past it is');
+    t.eq(budgetState(0, 0), 'under', 'a budget of zero, unspent, is met rather than "near"');
+    t.eq(budgetState(1, 0), 'over', 'and one paisa against it is over');
+
+    const list = [
+      expense('2025-08-02', 6000, 'food'),
+      expense('2025-08-03', 2000, 'groceries'),
+      expense('2025-08-04', 1000, 'other'),
+      income('2025-08-05', 9000, 'salary'),
+      transfer('2025-08-06', 4000),
+    ];
+    const report = budgetReportForRange(
+      list, ALL_CATEGORIES, { '2025-08': { food: 1000000 } },
+      periodRange('monthly', '2025-08-13'), TODAY,
+    );
+
+    t.eq(report.budgeted.length, 1, 'one category is budgeted');
+    // Every expense category without a budget is listed, spent in or not: the
+    // list is both the report of money outside the plan *and* the place a
+    // budget gets set, so a category you have not spent in yet has to be
+    // reachable. Spend orders it, so the biggest leak reads first.
+    t.deepEq(report.unbudgeted.slice(0, 2).map((r) => r.categoryId), ['groceries', 'other'],
+      'the money outside the plan is itemised, largest first, never lumped');
+    t.eq(report.unbudgeted.length, 8, 'and every other unbudgeted category can still be given one');
+    t.ok(report.unbudgeted.slice(2).every((r) => r.spentPaise === 0),
+      'the ones with no spend follow rather than leading');
+    t.eq(report.unbudgetedPaise, 300000, 'with a total that is never hidden');
+    t.eq(
+      report.budgetedSpentPaise + report.unbudgetedPaise,
+      report.totalPaise,
+      'budgeted plus unbudgeted is the whole expense, with nothing counted twice',
+    );
+    t.eq(report.totalPaise, 900000, 'and neither the income nor the transfer is in it');
+    t.ok(
+      report.rows.every((r) => ALL_CATEGORIES.find((c) => c.id === r.categoryId).kind === 'expense'),
+      'income categories are never given a budget to miss',
+    );
+  }
+
+  t.group('Budgets — pace, projection, and a period that has already ended');
+
+  {
+    const august = periodRange('monthly', '2025-08-13');   // 31 days
+    const budget = 3100000;                                // ₹31,000 — ₹1,000 a day
+
+    // 13 August: 13 of 31 days elapsed, so ₹13,000 is exactly on pace.
+    const onTrack = paceForRange({
+      budgetPaise: budget, spentPaise: 1300000, range: august, today: TODAY,
+    });
+    t.eq(onTrack.expectedPaise, 1300000,
+      'expected spend is the budget times the fraction of the period gone');
+    t.eq(onTrack.daysElapsed, 13, 'today counts as elapsed');
+    t.eq(onTrack.status, 'on-track', 'and matching it is on track');
+    t.eq(onTrack.projectedPaise, budget, 'the projection carries the current rate to the end');
+
+    const ahead = paceForRange({
+      budgetPaise: budget, spentPaise: 1500000, range: august, today: TODAY,
+    });
+    t.eq(ahead.status, 'ahead', 'spending faster than the plan is ahead of pace');
+    t.eq(ahead.deltaPaise, 200000, 'by the difference from expected');
+
+    const behind = paceForRange({
+      budgetPaise: budget, spentPaise: 1000000, range: august, today: TODAY,
+    });
+    t.eq(behind.status, 'behind', 'and slower is behind it');
+
+    // A finished period cannot be paced: there is nothing left to predict.
+    const july = periodRange('monthly', '2025-07-13');
+    const finished = paceForRange({
+      budgetPaise: budget, spentPaise: budget + 1, range: july, today: TODAY,
+    });
+    t.eq(finished.isPast, true, 'a period that has ended knows it');
+    t.eq(finished.status, 'over', 'and reports the result rather than a prediction');
+    t.eq(finished.daysElapsed, 31, 'with the whole period elapsed');
+    t.eq(
+      paceForRange({ budgetPaise: budget, spentPaise: budget, range: july, today: TODAY }).status,
+      'under',
+      'landing exactly on the budget is a period finished under it',
+    );
+  }
+
+  t.group('Budgets — the store writes them per month, never per category');
+
+  {
+    const backend = fakeStorage();
+    const store = createStore({ backend, now: () => TODAY });
+    store.init();
+
+    t.eq(store.setBudget('2025-08', 'food', 620000).ok, true, 'a budget is set for a month');
+    t.eq(store.getState().data.budgets['2025-08'].food, 620000, 'and stored under that month');
+    t.eq(store.getState().data.categories.find((c) => c.id === 'food').budgetPaise, undefined,
+      'nothing is written back onto the category');
+
+    t.eq(store.setBudget('2025-08', 'salary', 100).reason, 'not-expense',
+      'an income category is never given a budget');
+    t.eq(store.setBudget('2025-13', 'food', 100).reason, 'bad-month',
+      'a month key that is not one is refused');
+    t.eq(store.setBudget('2025-08', 'food', -1).reason, 'invalid-amount',
+      'so is a negative budget');
+    t.eq(store.setBudget('2025-08', 'food', 0).ok, true, 'zero is a real plan and is allowed');
+
+    t.eq(store.clearBudget('2025-08', 'food').ok, true, 'clearing stops tracking');
+    t.eq(store.getState().data.budgets['2025-08'], undefined,
+      'and a month left empty is dropped rather than kept as an empty object');
+
+    // Copy forward: the affordance that makes budgets survive their first month.
+    store.setBudget('2025-07', 'food', 500000);
+    store.setBudget('2025-07', 'transport', 200000);
+    store.setBudget('2025-08', 'food', 999999);
+
+    const copied = store.copyBudgetsFromPrevious(['2025-08']);
+    t.eq(copied.ok, true, 'the previous month can be copied forward');
+    t.eq(copied.copied, 1, 'only the categories not already budgeted are copied');
+    t.eq(store.getState().data.budgets['2025-08'].food, 999999,
+      'a figure already decided for this month is never overwritten by an older one');
+    t.eq(store.getState().data.budgets['2025-08'].transport, 200000, 'and the rest come across');
+    t.eq(store.copyBudgetsFromPrevious(['2025-08']).reason, 'nothing-to-copy',
+      'copying again changes nothing, and says so rather than reporting success');
+
+    // A deleted category takes its budget with it.
+    store.setBudget('2025-08', 'health', 100000);
+    t.eq(store.deleteCategory('health').ok, true, 'an unused category deletes');
+    t.eq(store.getState().data.budgets['2025-08'].health, undefined,
+      'and its budget goes too, rather than planning money for nothing');
+
+    store.flush();
+    t.eq(
+      JSON.parse(backend.getItem('heft:v1')).budgets['2025-08'].transport,
+      200000,
+      'budgets are persisted with everything else',
+    );
+  }
+
+  t.group('Budgets — merging a category carries its history and its plan');
+
+  {
+    const backend = fakeStorage();
+    const store = createStore({ backend, now: () => TODAY });
+    store.init();
+
+    const add = (rupees, date, categoryId) => store.addTransaction({
+      direction: 'expense', amountPaise: rupees * 100, date, categoryId, accountId: 'cash',
+    });
+    add(50, '2025-08-02', 'food');
+    add(30, '2025-08-03', 'food');
+    add(10, '2025-08-04', 'groceries');
+    store.setBudget('2025-08', 'food', 400000);
+    store.setBudget('2025-08', 'groceries', 100000);
+
+    const before = expenseTotalPaise(store.getState().data.transactions);
+
+    t.eq(store.mergeCategory('food', 'salary').reason, 'kind-mismatch',
+      'an expense category cannot be merged into an income one');
+    t.eq(store.mergeCategory('food', 'food').reason, 'same-category', 'nor into itself');
+
+    const merged = store.mergeCategory('food', 'groceries');
+    t.eq(merged.ok, true, 'a same-kind merge is allowed');
+    t.eq(merged.moved, 2, 'and reports how many records moved');
+    t.eq(store.countTransactionsIn('food'), 0, 'the source is left holding nothing');
+    t.eq(store.countTransactionsIn('groceries'), 3, 'and the target holds everything');
+    t.eq(expenseTotalPaise(store.getState().data.transactions), before,
+      'no money is created or destroyed by a merge');
+    t.eq(store.categoryById('food').archived, true,
+      'the source is archived, not deleted, so an older period still resolves its name');
+    t.eq(store.getState().data.budgets['2025-08'].groceries, 500000,
+      'the two budgets add up rather than one of them quietly disappearing');
+    t.eq(store.getState().data.budgets['2025-08'].food, undefined, 'and the source keeps none');
+
+    store.flush();
   }
 
   t.group('Analytics — daily totals across a range');
@@ -583,6 +931,129 @@ export default function suite(t) {
     // before the first of the month rather than restarting at zero.
     const spanning = dailyTotalsBetween(list, '2025-07-03', '2025-08-31');
     t.eq(spanning.length, 60, 'a range can cross a month boundary');
+  }
+
+  /* =========================================================== chart === */
+  t.group('Chart — the tail of a ranked list becomes one slice');
+
+  {
+    const rows = [
+      { categoryId: 'rent', totalPaise: 900000 },
+      { categoryId: 'food', totalPaise: 60000 },
+      { categoryId: 'fuel', totalPaise: 20000 },
+      { categoryId: 'chai', totalPaise: 20000 },
+    ];
+    const { slices, other } = groupSmallSlices(rows);
+
+    t.eq(slices.length, 3, 'the two 2% rows collapse into one slice');
+    t.eq(slices[2].categoryId, OTHER_SLICE_ID, 'the grouped slice comes last');
+    t.eq(other.totalPaise, 40000, 'and carries exactly the sum of its members');
+    t.eq(other.members.length, 2, 'both members are kept, for the list and the table');
+
+    const shareSum = slices.reduce((sum, r) => sum + r.share, 0);
+    t.ok(Math.abs(shareSum - 1) < 1e-9, 'the shares still sum to one');
+    t.ok(Math.abs(other.share - (other.members[0].share + other.members[1].share)) < 1e-9,
+      "and the group's share is its members' shares added up");
+
+    // The refusal that matters: one straggler is named, never hidden behind
+    // the word "Other", because the arc is the same size either way.
+    const single = groupSmallSlices([
+      { categoryId: 'rent', totalPaise: 900000 },
+      { categoryId: 'fuel', totalPaise: 2000 },
+    ]);
+    t.eq(single.other, null, 'a tail of one is left named');
+    t.eq(single.slices.length, 2, 'and still drawn as its own slice');
+
+    const many = groupSmallSlices(
+      Array.from({ length: 12 }, (_, i) => ({ categoryId: `c${i}`, totalPaise: 10000 })),
+    );
+    t.eq(many.slices.length, MAX_SLICES + 1, 'a long list is cut to the ring plus one group');
+    t.eq(many.other.members.length, 12 - MAX_SLICES, 'everything beyond the cut is in the group');
+
+    t.deepEq(groupSmallSlices([]).slices, [], 'an empty list produces no slices');
+    t.eq(groupSmallSlices([{ categoryId: 'a', totalPaise: 0 }]).other, null,
+      'a zero total groups nothing rather than dividing by it');
+  }
+
+  t.group('Chart — no slice is allowed to disappear');
+
+  {
+    const floored = enforceMinShare([100, 1, 1], 0.02);
+    const sum = floored.reduce((a, b) => a + b, 0);
+    t.ok(Math.abs(sum - 102) < 1e-9, 'the total is preserved exactly, so the ring still closes');
+    t.ok(floored.every((v) => v >= 102 * 0.02 - 1e-9), 'every slice clears the minimum arc');
+    t.ok(floored[0] < 100, 'the largest slice is the one that gave the sliver up');
+    t.ok(floored[0] > floored[1], 'and is still the largest');
+
+    const untouched = enforceMinShare([40, 30, 30], 0.02);
+    t.deepEq(untouched, [40, 30, 30], 'values already above the floor are left alone');
+
+    const zeros = enforceMinShare([50, 0, 50], 0.02);
+    t.eq(zeros[1], 0, 'a zero takes no arc — it is not a slice at all');
+
+    // A donor pushed under the floor by donating is floored in turn; when
+    // that leaves nobody to donate, the honest answer is an equal ring.
+    const impossible = enforceMinShare([50, 50, 1], 0.34);
+    t.ok(Math.abs(impossible.reduce((a, b) => a + b, 0) - 101) < 1e-9,
+      'the total survives even when the floor cannot be met');
+    t.ok(Math.abs(impossible[0] - impossible[2]) < 1e-9,
+      'and the ring is split equally rather than leaving one slice invisible');
+
+    const crowded = enforceMinShare(new Array(60).fill(1), 0.02);
+    t.ok(crowded.every((v) => Math.abs(v - 1) < 1e-9),
+      'sixty slices cannot all clear 2%, so they share the ring equally');
+  }
+
+  t.group('Chart — long periods are bucketed, not drawn as a picket fence');
+
+  {
+    const days = dailyTotalsBetween(
+      [expense('2025-08-02', 100), expense('2025-08-09', 50)], '2025-08-01', '2025-08-30',
+    );
+    t.eq(days.length, 30, 'thirty days in');
+
+    const daily = bucketDays(days, 1);
+    t.eq(daily.length, 30, 'a span of one is one bar per day');
+    t.eq(daily[1].start, daily[1].end, 'and each bucket is a single date');
+
+    const weekly = bucketDays(days, 7);
+    t.eq(weekly.length, 5, 'thirty days make four whole weeks and a short one');
+    t.eq(weekly[4].days, 2, 'the short bucket says how short it is');
+    t.eq(weekly[0].start, '2025-08-01', 'buckets align to the range, not to the calendar week');
+    t.eq(
+      weekly.reduce((sum, b) => sum + b.totalPaise, 0),
+      days.reduce((sum, d) => sum + d.totalPaise, 0),
+      'bucketing moves no money',
+    );
+
+    t.eq(barSpanFor(31), 1, 'a month is drawn a day at a time');
+    t.eq(barSpanFor(366), 7, 'a year is drawn a week at a time');
+  }
+
+  t.group('Chart — a signed axis keeps zero at zero');
+
+  {
+    const positive = signedTicks(0, 3847, 4);
+    t.deepEq(positive.ticks, niceTicks(3847, 4).ticks,
+      'an all-positive series gets exactly the nice-numbers axis');
+    t.eq(positive.min, 0, 'and no negative half');
+
+    const both = signedTicks(-300, 500, 4);
+    t.eq(both.min, -both.max, 'a signed axis is symmetric, so zero sits on the line');
+    t.ok(both.ticks.includes(0), 'zero is a tick');
+    t.ok(both.ticks[0] < 0, 'the axis starts below zero');
+    const gaps = both.ticks.slice(1).map((v, i) => v - both.ticks[i]);
+    t.ok(gaps.every((g) => Math.abs(g - both.step) < 1e-9), 'the step is even across zero');
+  }
+
+  t.group('Chart — the value ramp that survives greyscale');
+
+  {
+    t.eq(shadeFor(0, 5), 0, 'the largest slice keeps its hue');
+    t.eq(shadeFor(0, 1), 0, 'a lone slice is never shaded');
+    const ramp = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => shadeFor(i, 8));
+    t.ok(ramp.every((v, i) => i === 0 || v > ramp[i - 1]), 'every slice differs from its neighbour');
+    t.ok(ramp.every((v) => v <= 54), 'and none is taken so far that the hue is gone');
   }
 
   /* ======================================================== geometry === */
@@ -903,7 +1374,7 @@ export default function suite(t) {
     t.eq(up.data.transactions[1].categoryId, 'other', 'an unknown v0 category lands in Other');
     t.eq(up.data.categories.filter((c) => c.kind === 'expense').length, 9, 'migration seeds categories');
     t.ok(typeof up.data.transactions[0].createdAt === 'string', 'migration invents a createdAt');
-    t.eq(up.data.transactions[0].kind, 'transaction', 'a v0 record chains all the way to v2');
+    t.eq(up.data.transactions[0].kind, 'transaction', 'a v0 record chains all the way up');
   }
 
   t.group('Storage — validation');
@@ -1166,8 +1637,22 @@ export default function suite(t) {
     t.eq(summary.merge.transactionsRemoved, 0, 'merge removes nothing');
     t.eq(summary.merge.categoriesAdded, 1, 'merge reports the new category');
     t.eq(summary.merge.accountsAdded, 1, 'merge reports the new account');
-    t.eq(summary.replace.transactionsRemoved, 2, 'replace reports what would be lost');
+    // A conflict is the one place the two modes disagree, so the preview
+    // names it separately from "added" in both directions.
+    t.eq(summary.conflicts, 1, 'the preview counts the ids present in both files');
+    t.eq(summary.merge.transactionsUpdated, 0, 'merge changes nothing you already have, and says so');
+    t.eq(summary.replace.transactionsUpdated, 1, 'replace overwrites the record you share');
+    t.eq(summary.replace.transactionsAdded, 2, 'replace adds the two the file has and you do not');
+    // Lost, not merely gone from the screen: the shared record is overwritten
+    // rather than lost, so it is not counted here. Only the one record that
+    // exists here and nowhere in the file actually disappears.
+    t.eq(summary.replace.transactionsRemoved, 1, 'replace reports what would be lost for good');
     t.eq(summary.replace.transactionsAfter, 3, 'replace reports the resulting total');
+    t.eq(
+      summary.replace.transactionsAdded + summary.replace.transactionsUpdated,
+      summary.incoming.transactions,
+      'every record in the file is either added or overwrites one, with nothing unaccounted for',
+    );
 
     const merged = mergeStates(current, incoming);
     t.eq(merged.transactions.length, 4, 'merge produces what the preview promised');
@@ -1301,8 +1786,13 @@ export default function suite(t) {
     t.eq(periodTotals(withMove, august).transferCount, 1, 'but the period knows the transfer happened');
 
     t.eq(
-      budgetReport(withMove, CATEGORIES.map((c) => ({ ...c, budgetPaise: 500000 })), '2025-08', TODAY)
-        .overall.spentPaise,
+      budgetReport(
+        withMove,
+        CATEGORIES,
+        { '2025-08': Object.fromEntries(CATEGORIES.map((c) => [c.id, 500000])) },
+        '2025-08',
+        TODAY,
+      ).overall.spentPaise,
       400000,
       'a transfer never consumes a budget',
     );
@@ -1500,10 +1990,10 @@ export default function suite(t) {
   t.group('A future schema is never silently overwritten');
 
   {
-    const written = JSON.stringify({ schemaVersion: 3, transactions: [], accounts: [], categories: [] });
+    const written = JSON.stringify({ schemaVersion: 4, transactions: [], accounts: [], categories: [] });
     const backend = fakeStorage({ 'heft:v1': written });
 
-    t.eq(migrate(JSON.parse(written)).ok, false, 'a v3 blob does not migrate');
+    t.eq(migrate(JSON.parse(written)).ok, false, 'a v4 blob does not migrate');
     t.eq(migrate(JSON.parse(written)).reason, 'future-schema', 'and the reason is nameable, so the UI can say it');
 
     const store = createStore({ backend, now: () => TODAY });
@@ -1726,12 +2216,14 @@ export default function suite(t) {
     t.eq(cmp.current.incomePaise, 900000, 'income is reported alongside, never folded in');
 
     const q = periodRange('3-month', '2025-08-13');
-    const report = budgetReportForRange(ledger, ALL_CATEGORIES.map(
-      (c) => ({ ...c, budgetPaise: c.id === 'food' ? 500000 : null }),
-    ), q, TODAY);
+    // ₹5,000 a month for food, across all three months the window covers.
+    const foodBudget = {
+      '2025-06': { food: 500000 }, '2025-07': { food: 500000 }, '2025-08': { food: 500000 },
+    };
+    const report = budgetReportForRange(ledger, ALL_CATEGORIES, foodBudget, q, TODAY);
     t.eq(report.totalPaise, 250000, 'a range-based report sums the whole window');
     t.eq(report.overall.spentPaise, 250000, 'budgeted spend across the range');
-    t.eq(report.overall.budgetPaise, 500000, 'against the budgeted money');
+    t.eq(report.overall.budgetPaise, 1500000, 'against three months of the monthly figure');
     t.eq(report.overall.daysInPeriod, 30 + 31 + 31, 'paced over the real length of the range');
     t.ok(
       report.rows.every((r) => ALL_CATEGORIES.find((c) => c.id === r.categoryId).kind === 'expense'),
@@ -1741,9 +2233,7 @@ export default function suite(t) {
     // A refund filed as income must not pay down a budget.
     const refunded = [...ledger, income('2025-08-08', 1200, 'refunds')];
     t.eq(
-      budgetReportForRange(refunded, ALL_CATEGORIES.map(
-        (c) => ({ ...c, budgetPaise: c.id === 'food' ? 500000 : null }),
-      ), q, TODAY).overall.spentPaise,
+      budgetReportForRange(refunded, ALL_CATEGORIES, foodBudget, q, TODAY).overall.spentPaise,
       250000,
       'income never reduces what a budget has spent',
     );
@@ -1818,12 +2308,14 @@ export default function suite(t) {
     };
 
     const before = v1.expenses.reduce((n, e) => n + e.amountPaise, 0);
-    const result = migrate(v1);
+    // `today` is passed, so which month inherits a v1 category budget is a
+    // decision the test makes rather than one the clock makes.
+    const result = migrate(v1, { today: TODAY });
     const v2 = result.data;
     const after = v2.transactions.reduce((n, t2) => n + t2.amountPaise, 0);
 
     t.eq(result.ok, true, 'a realistic v1 ledger migrates');
-    t.eq(v2.schemaVersion, 2, 'and comes out as v2');
+    t.eq(v2.schemaVersion, CURRENT_SCHEMA_VERSION, 'and comes out at the current version');
     t.eq(v2.transactions.length, v1.expenses.length, 'no record is lost');
     t.eq(after, before, 'and the total is identical to the paisa, before and after');
     t.eq(
@@ -1869,7 +2361,13 @@ export default function suite(t) {
     t.ok(v2.categories.filter((c) => c.kind === 'expense').length >= 10, 'every v1 category survives');
     t.ok(v2.categories.every((c) => c.kind === 'expense' || c.kind === 'income'), 'every category is tagged with a kind');
     t.ok(v2.categories.find((c) => c.id === 'pets').kind === 'expense', 'a user-made v1 category becomes an expense one');
-    t.eq(v2.categories.find((c) => c.id === 'food').budgetPaise, 1200000, 'budgets are carried over untouched');
+    // A v1 budget applied to every month that ever was. Writing it into all of
+    // them would invent a history the user never set, so it lands in the month
+    // being migrated in and nowhere else.
+    t.eq(v2.budgets['2025-08'].food, 1200000, 'a v1 category budget becomes a budget for this month');
+    t.eq(v2.budgets['2025-07'], undefined, 'and not for a month it was never set in');
+    t.eq(v2.categories.find((c) => c.id === 'food').budgetPaise, undefined,
+      'the field itself is gone, so there is one place a budget can be read from');
 
     const incomeNames = v2.categories.filter((c) => c.kind === 'income').map((c) => c.name);
     t.deepEq(
@@ -1878,7 +2376,7 @@ export default function suite(t) {
       'the default income category set is seeded',
     );
 
-    t.eq(v2.settings.schemaVersion, 2, 'settings carry the new version');
+    t.eq(v2.settings.schemaVersion, CURRENT_SCHEMA_VERSION, 'settings carry the new version');
     t.eq(v2.settings.theme, 'dark', 'a v1 setting the user chose survives');
     t.eq(v2.settings.defaultAccountId, 'cash', 'there is a default account to add against');
     t.eq(v2.settings.defaultExpenseCategoryId, 'food', 'the v1 default category becomes the expense default');
@@ -1920,18 +2418,18 @@ export default function suite(t) {
     );
   }
 
-  t.group('Migration — a v2 blob from a newer build fails safe');
+  t.group('Migration — a blob from a newer build fails safe');
 
   {
     const v3 = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       transactions: [{ id: 'a', amountPaise: 100, date: '2025-08-01', someFutureField: true }],
       accounts: SEED_ACCOUNTS.map((a) => ({ ...a })),
       categories: ALL_CATEGORIES.map((c) => ({ ...c })),
       settings: {},
     };
 
-    t.eq(migrate(v3).ok, false, 'a schemaVersion 3 blob does not migrate');
+    t.eq(migrate(v3).ok, false, 'a schemaVersion 4 blob does not migrate');
     t.eq(migrate(v3).reason, 'future-schema', 'it is refused by name, not by crashing');
     t.eq(migrate(v3).data, undefined, 'and no data is handed back to be written');
     t.eq(parseState(JSON.stringify(v3)).ok, false, 'parsing reports the failure');
@@ -1951,8 +2449,399 @@ export default function suite(t) {
     store.flush();
     t.eq(
       JSON.parse(backend.getItem('heft:v1')).schemaVersion,
-      3,
+      4,
       'the newer payload is still on disk, unchanged',
     );
+  }
+
+  /* ==================================================== contrast maths */
+
+  t.group('Contrast — the WCAG formulas');
+  {
+    t.eq(ratio2('#000000', '#FFFFFF'), 21, 'black on white is 21:1, the maximum');
+    t.eq(ratio2('#FFFFFF', '#FFFFFF'), 1, 'a colour against itself is 1:1');
+    t.eq(ratio2('#FFFFFF', '#000000'), 21, 'order does not matter');
+    // A known reference point: #767676 is the lightest grey that still clears
+    // 4.5:1 on white, which is why it turns up in so many style guides.
+    t.ok(ratio2('#767676', '#FFFFFF') >= 4.5, '#767676 on white clears AA');
+    t.ok(ratio2('#787878', '#FFFFFF') < 4.5, 'and one step lighter does not');
+
+    t.eq(parseHex('#abc')?.length, 3, 'three-digit hex expands');
+    t.eq(parseHex('abcdef')?.length, 3, 'a missing # is tolerated');
+    t.eq(parseHex('not a colour'), null, 'junk returns null rather than throwing');
+    t.eq(contrastRatio('#fff', 'nope'), null, 'and propagates as null, not NaN');
+
+    t.ok(meetsAA('#000', '#fff'), 'meetsAA agrees at the extreme');
+    t.ok(!meetsAA('#777', '#888'), 'and rejects two mid greys');
+    t.eq(AA_TEXT, 4.5, 'the AA text threshold is 4.5');
+  }
+
+  /* ============================================================ router */
+
+  t.group('Router — the URL is the view state');
+  {
+    t.eq(parseRoute('').tab, 'records', 'an empty hash opens on Records');
+    t.eq(parseRoute('#/analysis').tab, 'analysis', 'a tab is read from the path');
+    t.eq(parseRoute('#/budgets?period=2026-08').period, '2026-08', 'the period is read');
+    t.eq(parseRoute('#/records').period, null, 'and is null when absent, not guessed');
+
+    // Total parsing: a hand-edited URL degrades, never throws.
+    t.eq(parseRoute('#/nonsense').tab, 'records', 'an unknown tab falls back');
+    t.eq(parseRoute('#/records?period=2026-13').period, null, 'month 13 is rejected');
+    t.eq(parseRoute('#/records?period=banana').period, null, 'so is junk');
+    t.eq(parseRoute('#/records?mode=hourly').mode, 'monthly', 'an unknown view mode falls back');
+    t.eq(parseRoute('#/RECORDS').tab, 'records', 'the path is case-insensitive');
+    t.eq(parseRoute('#///records').tab, 'records', 'extra slashes are ignored');
+
+    t.eq(parseRoute('#/records?cat=food,rent').categoryIds.length, 2, 'lists split on commas');
+    t.eq(parseRoute('#/records?cat=food,,rent').categoryIds.length, 2, 'empty entries are dropped');
+    t.eq(parseRoute('#/records?q=chai').query, 'chai', 'the search query round-trips');
+
+    t.eq(parseRoute('#/analysis').view, 'expense', 'the analysis view defaults to expense');
+    t.eq(parseRoute('#/analysis?view=net').view, 'net', 'and is read from the URL');
+    t.eq(parseRoute('#/analysis?view=sideways').view, 'expense', 'an unknown view falls back');
+    t.eq(routeToHash({ ...DEFAULT_ROUTE, tab: 'analysis' }), '#/analysis',
+      'the default view is left out of the hash');
+    t.eq(
+      routeToHash(parseRoute('#/analysis?view=income')), '#/analysis?view=income',
+      'a chosen view survives the round trip, so the screen is linkable',
+    );
+
+    // Serialising omits defaults, so the common case stays short.
+    t.eq(routeToHash(DEFAULT_ROUTE), '#/records', 'the default route is a bare path');
+    t.eq(routeToHash({ ...DEFAULT_ROUTE, tab: 'accounts' }), '#/accounts', 'no empty query string');
+    t.eq(
+      routeToHash({ ...DEFAULT_ROUTE, tab: 'analysis', period: '2026-08' }),
+      '#/analysis?period=2026-08',
+      'a period is carried',
+    );
+    t.eq(
+      routeToHash({ ...DEFAULT_ROUTE, mode: 'monthly' }),
+      '#/records',
+      'the default view mode is omitted',
+    );
+
+    // The round trip is what makes a link shareable.
+    for (const hash of [
+      '#/records', '#/analysis?period=2026-08', '#/budgets?mode=weekly',
+      '#/accounts?cat=food,rent&q=chai',
+    ]) {
+      t.eq(routeToHash(parseRoute(hash)), hash, `${hash} survives a round trip`);
+    }
+
+    t.ok(sameRoute(parseRoute('#/records'), DEFAULT_ROUTE), 'sameRoute compares by value');
+    t.ok(!sameRoute(parseRoute('#/records'), parseRoute('#/budgets')), 'and separates two tabs');
+    t.eq(TABS.length, 5, 'there are five tabs');
+
+    /* One vocabulary for view modes. The router and dates.js have to agree
+       exactly: a mode the router accepts but periodRange cannot read would
+       produce a null range and silently empty the pane. */
+    t.eq(ROUTE_VIEW_MODES.join(','), VIEW_MODES.join(','),
+      'THE ROUTER AND dates.js NAME THE SAME SIX VIEW MODES');
+    for (const mode of ROUTE_VIEW_MODES) {
+      t.ok(periodRange(mode, '2026-08-13') !== null, `${mode} produces a real range`);
+    }
+
+    /* The period is an anchor, and it comes in two widths. A month is enough
+       for monthly and longer; daily and weekly have to say which day. */
+    t.eq(parseRoute('#/records?period=2026-08-13').period, '2026-08-13', 'a full date is a period');
+    t.eq(parseRoute('#/records?period=2026-08-32').period, null, 'day 32 is rejected');
+    t.eq(parseRoute('#/records?period=2026-02-30').period, '2026-02-30',
+      'the shape is checked here; whether the day exists is dates.js’ job');
+    t.eq(routeToHash(parseRoute('#/records?period=2026-08-13')), '#/records?period=2026-08-13',
+      'a dated period round-trips');
+
+    t.eq(anchorOf({ period: '2026-08' }, '2026-01-09'), '2026-08-01',
+      'a month key anchors on its first day');
+    t.eq(anchorOf({ period: '2026-08-13' }, '2026-01-09'), '2026-08-13',
+      'a full date anchors on itself');
+    t.eq(anchorOf({ period: null }, '2026-01-09'), '2026-01-09',
+      'and no period at all means today');
+
+    t.eq(periodFor('daily', '2026-08-13'), '2026-08-13', 'daily writes the day back');
+    t.eq(periodFor('weekly', '2026-08-13'), '2026-08-13', 'so does weekly');
+    t.eq(periodFor('monthly', '2026-08-13'), '2026-08', 'monthly writes only the month');
+    t.eq(periodFor('yearly', '2026-08-13'), '2026-08', 'and so does everything longer');
+
+    // Any day of a month must select the same month-or-longer range, or
+    // stepping would land somewhere different depending on today's date.
+    t.eq(
+      periodRange('monthly', anchorOf({ period: '2026-08' }, '2026-08-31')).end,
+      periodRange('monthly', '2026-08-31').end,
+      'the anchor day does not change a monthly range',
+    );
+  }
+
+  /* =========================================================== format */
+
+  t.group('Format — money at the render boundary');
+  {
+    const show = { showDecimals: true };
+    const hide = { showDecimals: false };
+
+    // Indian grouping is the whole reason Intl is doing this and not us.
+    t.eq(money(15000000, show), '₹1,50,000.00', 'a lakh groups as 1,50,000, never 150,000');
+    t.eq(money(15000000, hide), '₹1,50,000', 'and the decimals toggle drops the paise');
+    t.eq(money(0, show), '₹0.00', 'zero still shows two decimals');
+    t.eq(money(1, show), '₹0.01', 'one paisa is not rounded away');
+
+    // The sign is derived from direction, never stored, and is what stops
+    // colour being the only signal.
+    t.eq(signedMoney(32000, 'expense', show).text, '−₹320.00', 'an expense gets a minus');
+    t.eq(signedMoney(20000, 'income', show).text, '+₹200.00', 'income gets a plus');
+    t.eq(signedMoney(20000, 'transfer', show).text, '₹200.00', 'a transfer gets neither');
+    t.eq(signedMoney(32000, 'expense', show).word, 'expense', 'and carries the word for a reader');
+    t.eq(signedMoney(20000, 'income', show).word, 'income', 'likewise for income');
+
+    // U+2212, not a hyphen: it aligns with the digits and reads as a sign.
+    t.eq(signedMoney(1, 'expense', show).sign.charCodeAt(0), 0x2212, 'the minus is a real minus sign');
+
+    // A positive amount is the invariant; the formatter must not be where a
+    // stray negative sneaks a second sign in.
+    t.eq(signedMoney(-32000, 'expense', show).text, '−₹320.00', 'a negative input still renders one minus');
+
+    t.eq(netMoney(5000, show).text, '+₹50.00', 'a surplus is signed');
+    t.eq(netMoney(-5000, show).text, '−₹50.00', 'a deficit is signed');
+    t.eq(netMoney(0, show).text, '₹0.00', 'breaking even gets no sign at all');
+    t.eq(netMoney(0, show).tone, 'flat', 'and is toned flat rather than positive');
+  }
+
+  /* ======================================================== analysis === */
+  t.group('Analysis — a chart says which of the three views it is drawing');
+
+  {
+    t.deepEq([...VIEWS], [...ANALYSIS_VIEWS],
+      'the router and analytics name the same three views, not merely compatible ones');
+
+    const move = transfer('2025-08-10', 5000);
+    for (const view of VIEWS) {
+      t.eq(viewAmount(move, view), 0, `a transfer contributes nothing to the ${view} view`);
+    }
+    t.eq(viewAmount(expense('2025-08-10', 250), 'net'), -25000, 'an expense is negative in net');
+    t.eq(viewAmount(income('2025-08-10', 250), 'net'), 25000, 'and income is positive');
+    t.eq(viewAmount(income('2025-08-10', 250), 'expense'), 0, 'income is not spending');
+
+    const base = [expense('2025-08-02', 400), expense('2025-08-05', 100)];
+    const range = { start: '2025-08-01', end: '2025-08-31' };
+    const spendSeries = (list) => dailyTotalsBetween(list, range.start, range.end, 'expense');
+
+    // E1 and E2, asked of the Analysis tab's own series rather than the
+    // ledger's: adding money that is not spending must move no bar of it.
+    const withIncome = [...base, income('2025-08-03', 90000)];
+    t.deepEq(spendSeries(withIncome), spendSeries(base),
+      'adding a ₹90,000 income leaves every daily expense bar bit-identical');
+
+    const withTransfer = [...base, transfer('2025-08-03', 9999)];
+    t.deepEq(spendSeries(withTransfer), spendSeries(base),
+      'and so does adding a transfer');
+    t.deepEq(
+      dailyTotalsBetween(withTransfer, range.start, range.end, 'net'),
+      dailyTotalsBetween(base, range.start, range.end, 'net'),
+      'a transfer moves no bar of the net series either',
+    );
+
+    const net = dailyTotalsBetween(withIncome, range.start, range.end, 'net');
+    t.eq(net[1].totalPaise, -40000, 'a day that only spent is negative in the net view');
+    t.eq(net[2].totalPaise, 9000000, 'a day that only earned is positive');
+
+    const incomeSeries = dailyTotalsBetween(withIncome, range.start, range.end, 'income');
+    t.eq(incomeSeries[1].totalPaise, 0, 'the income series ignores a day of spending');
+    t.eq(incomeSeries[2].totalPaise, 9000000, 'and reports the day money arrived');
+
+    // The mean/median panel asks the same question of each view.
+    const stats = dailySpendStatsForRange(withIncome, range, '2025-08-05', 'net');
+    t.eq(stats.days, 5, 'the denominator is days elapsed, not days with a record');
+    t.eq(stats.medianPaise, 0, 'the middle day of five nets nothing');
+    t.eq(stats.totalPaise, 9000000 - 50000, 'and the total is income less expense');
+
+    const spend = dailySpendStatsForRange(withIncome, range, '2025-08-05', 'expense');
+    t.eq(spend.totalPaise, 50000, 'while the expense view of the same period is spending alone');
+  }
+
+  /* ============================================================ icons */
+
+  t.group('Icons — the registry');
+  {
+    t.ok(ICON_NAMES.length >= 40, 'the registry covers the whole set');
+    t.eq(iconOrFallback('food'), 'food', 'a known name resolves to itself');
+    t.eq(iconOrFallback('no-such-icon'), 'other', 'an unknown one falls back rather than rendering blank');
+
+    let wellFormed = true;
+    for (const name of ICON_NAMES) {
+      const entry = ICONS[name];
+      if (!Array.isArray(entry.d) || entry.d.length === 0) wellFormed = false;
+      if (typeof entry.label !== 'string' || entry.label === '') wellFormed = false;
+    }
+    t.ok(wellFormed, 'every icon has at least one path and a label');
+
+    // Every tab needs its solid twin: the active tab is marked by weight as
+    // well as by colour, and a missing `filled` would silently drop that.
+    for (const tab of TABS) {
+      t.ok(Array.isArray(ICONS[`tab-${tab}`]?.filled), `tab-${tab} has a filled variant`);
+    }
+  }
+
+  /* ============================================================== csv --
+     The report export. The quoting rules are the whole reason this is a
+     module with tests rather than a `join(',')` in a click handler: a note
+     is free text, and free text is where a hand-rolled writer breaks. */
+
+  t.group('CSV — quoting the three inputs that break hand-rolled writers');
+  {
+    t.eq(csvField('chai'), 'chai', 'a plain field is written bare');
+    t.eq(csvField(''), '', 'an empty field is empty, not a pair of quotes');
+    t.eq(csvField(null), '', 'a missing value is an empty cell');
+    t.eq(csvField(undefined), '', 'so is an undefined one');
+
+    // 1. the comma
+    t.eq(csvField('chai, samosa'), '"chai, samosa"', 'a comma forces quotes');
+
+    // 2. the quote — doubled inside, per RFC 4180, never backslash-escaped
+    t.eq(csvField('the "good" chai'), '"the ""good"" chai"', 'a quote is doubled and the field quoted');
+    t.eq(csvField('"'), '""""', 'a lone quote becomes four characters');
+
+    // 3. the newline — the one that survives a glance at the file and
+    //    corrupts a row three thousand lines down
+    t.eq(csvField('chai\nand samosa'), '"chai\nand samosa"', 'a newline is kept inside quotes, not stripped');
+    t.eq(csvField('chai\r\nand samosa'), '"chai\r\nand samosa"', 'a CRLF inside a note survives too');
+
+    // all three at once, which is the case the brief asks for
+    const nasty = 'chai, "the good one"\nand a samosa';
+    t.eq(
+      csvField(nasty),
+      '"chai, ""the good one""\nand a samosa"',
+      'comma, quote and newline together survive in one field',
+    );
+
+    // Whitespace a spreadsheet would otherwise trim away.
+    t.eq(csvField(' padded '), '" padded "', 'leading and trailing spaces are preserved');
+
+    t.eq(csvRow(['a', 'b,c', 'd']), 'a,"b,c",d', 'a row quotes only the field that needs it');
+    t.eq(csvDocument([['a'], ['b']]), 'a\r\nb\r\n', 'records are CRLF-separated and the last one is terminated');
+  }
+
+  t.group('CSV — money and the shape of a row');
+  {
+    t.eq(paiseToDecimal(0), '0.00', 'zero keeps both places');
+    t.eq(paiseToDecimal(25000), '250.00', 'a round amount is not written as 250');
+    t.eq(paiseToDecimal(120050), '1200.50', 'paise land in the decimal places');
+    t.eq(paiseToDecimal(5), '0.05', 'five paise is not five rupees');
+    t.eq(paiseToDecimal(15000000), '150000.00', 'no grouping: a spreadsheet wants a number, not a presentation of one');
+    t.eq(paiseToDecimal(-400000), '-4000.00', 'a negative opening balance keeps its sign');
+
+    const state = {
+      categories: [
+        { id: 'food', name: 'Food & Dining', kind: 'expense' },
+        { id: 'salary', name: 'Salary', kind: 'income' },
+      ],
+      accounts: [
+        { id: 'cash', name: 'Cash' },
+        { id: 'bank', name: 'Bank, current' },
+      ],
+      budgets: {},
+      transactions: [
+        {
+          id: 't2', kind: 'transaction', direction: 'expense', amountPaise: 25000,
+          date: '2026-08-12', categoryId: 'food', accountId: 'cash', toAccountId: null,
+          note: 'chai, "the good one"\nand a samosa',
+        },
+        {
+          id: 't1', kind: 'transaction', direction: 'income', amountPaise: 5000000,
+          date: '2026-08-01', categoryId: 'salary', accountId: 'bank', toAccountId: null,
+          note: '',
+        },
+        {
+          id: 't3', kind: 'transfer', direction: 'expense', amountPaise: 100000,
+          date: '2026-08-20', categoryId: null, accountId: 'bank', toAccountId: 'cash',
+          note: 'top up',
+        },
+      ],
+    };
+
+    const csv = transactionsToCsv(state);
+    const lines = csv.split('\r\n');
+
+    t.eq(lines[0], TRANSACTION_COLUMNS.join(','), 'the header names every column');
+
+    // Oldest first: a running total in a helper column has to accumulate in
+    // the direction time runs.
+    t.ok(lines[1].startsWith('2026-08-01,'), 'rows are written oldest first');
+
+    t.eq(
+      lines[1],
+      '2026-08-01,Transaction,income,50000.00,Salary,"Bank, current",,',
+      'the account name containing a comma is quoted, and the empty cells stay empty',
+    );
+
+    // The nasty note spans two physical lines but is one record. Splitting
+    // the document on the record separator must still give three records.
+    t.eq(
+      csv.split('\r\n').filter((l) => l.startsWith('2026-08-')).length,
+      3,
+      'three records, even though one note contains a newline',
+    );
+    t.ok(
+      csv.includes('"chai, ""the good one""\nand a samosa"'),
+      'the note keeps its comma, its quotes and its newline, all inside one field',
+    );
+
+    // A transfer is Transfer in Type and blank in Direction: it is neither an
+    // expense nor an income, and the export must not imply it is either.
+    const transferRow = lines.find((l) => l.includes('Transfer'));
+    t.eq(
+      transferRow,
+      '2026-08-20,Transfer,,1000.00,,"Bank, current",Cash,top up',
+      'a transfer names both accounts, carries no category and no direction',
+    );
+
+    // Positive amounts with a separate direction, exactly as stored. A signed
+    // amount here would make the export disagree with the app.
+    t.ok(
+      !csv.includes('-50000.00') && !csv.includes('-250.00'),
+      'no amount is signed; direction is its own column',
+    );
+
+    // An id that no longer resolves is an empty cell, not a raw uuid.
+    const orphan = transactionsToCsv({
+      ...state,
+      transactions: [{
+        id: 'x', kind: 'transaction', direction: 'expense', amountPaise: 100,
+        date: '2026-08-01', categoryId: 'deleted-cat', accountId: 'deleted-acct',
+        toAccountId: null, note: '',
+      }],
+    });
+    t.eq(orphan.split('\r\n')[1], '2026-08-01,Transaction,expense,1.00,,,,',
+      'an unresolvable id leaves the cell blank rather than printing a uuid');
+
+    t.eq(transactionsToCsv({ categories: [], accounts: [], transactions: [] }).trim(),
+      TRANSACTION_COLUMNS.join(','), 'an empty ledger still exports its header');
+  }
+
+  t.group('CSV — the plan is its own document');
+  {
+    const state = {
+      categories: [{ id: 'food', name: 'Food & Dining' }, { id: 'rent', name: 'Rent & Bills' }],
+      accounts: [],
+      transactions: [],
+      budgets: {
+        '2026-08': { rent: 3000000, food: 800000 },
+        '2026-07': { food: 750000 },
+      },
+    };
+    const lines = budgetsToCsv(state).split('\r\n');
+    t.eq(lines[0], BUDGET_COLUMNS.join(','), 'the budget export names its columns');
+    t.eq(lines[1], '2026-07,Food & Dining,7500.00', 'months come out in order, oldest first');
+    t.eq(lines[2], '2026-08,Food & Dining,8000.00', 'a month lists its categories');
+    t.eq(lines[3], '2026-08,Rent & Bills,30000.00', 'one row per month per category, never one column per month');
+    t.eq(budgetsToCsv({ categories: [], budgets: {} }).trim(), BUDGET_COLUMNS.join(','),
+      'no plan still exports a header rather than an empty file');
+  }
+
+  t.group('CSV — filenames');
+  {
+    t.eq(csvFilename('records', '2026-08-31T10:20:30.000Z'), 'heft-2026-08-31-records.csv',
+      'the filename carries the date and what is in it');
+    t.eq(csvFilename('budgets', '2026-01-05T00:00:00.000Z'), 'heft-2026-01-05-budgets.csv',
+      'and names the other document differently');
   }
 }

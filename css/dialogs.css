@@ -1,0 +1,344 @@
+/**
+ * dialogs.css — the form primitives every dialog in the app is built from.
+ *
+ * The `.sheet` shell itself lives in shell.css; this is what goes *inside*
+ * one: labelled fields, the currency-prefixed amount input, the inline error,
+ * the segmented kind control, and the two pickers (icon and colour) the
+ * account and category sheets share.
+ *
+ * These were written for the v1 page and never carried across when the v2
+ * shell landed, which left the transaction form the FAB opens with correct
+ * markup and no styling. One copy, used by every sheet, is the point: a
+ * second set of field styles is how two dialogs end up disagreeing about what
+ * an error looks like.
+ */
+
+@layer components {
+
+  /* ============================================================== dialog --
+     `.dialog` is the taller, form-shaped sibling of `.sheet` — same ground and
+     shadow, more room, and a body that scrolls while the header and footer
+     stay put, so Save is never below the fold on a short screen. */
+
+  .dialog {
+    border: none;
+    padding: 0;
+    background: var(--surface);
+    color: var(--ink);
+    inline-size: min(28rem, calc(100vw - 2rem));
+    max-block-size: calc(100dvh - 3rem);
+    margin: auto;
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-dialog);
+    overflow: hidden;
+  }
+  .dialog::backdrop { background: var(--scrim); }
+
+  .dialog-form { display: flex; flex-direction: column; max-block-size: calc(100dvh - 3rem); }
+
+  .dialog-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+    border-block-end: 1px solid var(--rule);
+  }
+  .dialog-head h2 { flex: 1; font-size: var(--fs-md); font-weight: 700; }
+
+  .dialog-body {
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-4);
+    overflow-y: auto;
+  }
+
+  .dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5) var(--space-5);
+    border-block-start: 1px solid var(--rule);
+  }
+
+  /* =============================================================== fields */
+
+  .field { display: grid; gap: var(--space-2); min-inline-size: 0; }
+
+  .field-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: var(--space-4);
+  }
+
+  .field-label {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .field input[type="text"],
+  .field input[type="date"],
+  .field select,
+  .sheet-body select {
+    inline-size: 100%;
+    /* Every field is a 44px target. Padding alone left them at 40-42, which
+       is the same near-miss the buttons had. */
+    min-block-size: 2.75rem;
+    font: inherit;
+    font-weight: 600;
+    padding: var(--space-2) var(--space-3);
+    background: var(--sunken);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+    color: var(--ink);
+  }
+  .field input::placeholder { color: var(--ink-3); font-weight: 500; }
+
+  /* The rupee sits inside the field rather than beside it, so the digits
+     start where the eye already is. */
+  .input-wrap { position: relative; display: block; }
+  .input-prefix {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: var(--space-3);
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    color: var(--ink-3);
+    pointer-events: none;
+  }
+  .input-wrap input { padding-inline-start: 1.75rem; }
+
+  /* An error is announced, not merely coloured: it is tied to its input with
+     aria-describedby and the input carries aria-invalid. This is the visual
+     half of that. */
+  .field-error {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--money-out);
+    min-block-size: 0;
+  }
+  .field-error:empty { display: none; }
+  .field-error::before { content: "\26A0\FE0E  "; }
+  .field-error[data-tone="warn"] { color: var(--accent-text); }
+
+  .field input[aria-invalid="true"] {
+    border-color: var(--money-out);
+    background: color-mix(in oklab, var(--money-out) 7%, var(--sunken));
+  }
+
+  /* ========================================================== segmented --
+     A real radio group. One tab stop, arrows move the selection, and the
+     checked option is marked by weight and a filled ground, never by hue
+     alone. */
+
+  .segmented {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--sunken);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-md);
+  }
+
+  .seg {
+    flex: 1;
+    min-block-size: 2.75rem;
+    padding: var(--space-2) var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink-3);
+    border-radius: calc(var(--r-md) - 4px);
+    transition: background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+  }
+  .seg:hover { color: var(--ink); }
+  .seg[aria-checked="true"] {
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 700;
+    box-shadow: var(--shadow-raise);
+  }
+
+  /* ============================================================ pickers --
+     Icon and colour. Both are radiogroups; both mark the chosen one with a
+     ring *and* a tick, because a picker that signals only with colour is
+     unusable in exactly the palette it is choosing from. */
+
+  .glyph-grid,
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(2.75rem, 1fr));
+    gap: var(--space-2);
+  }
+
+  .glyph {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    color: var(--ink-2);
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    transition: background var(--dur-2) var(--ease-out);
+  }
+  .glyph:hover { background: var(--accent-wash); color: var(--ink); }
+  .glyph[aria-checked="true"] {
+    color: var(--ink);
+    background: var(--accent-wash);
+    border-color: var(--accent-edge);
+    box-shadow: inset 0 0 0 2px var(--accent-edge);
+  }
+
+  .swatch {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    border-radius: var(--r-md);
+    background: var(--swatch-color);
+    border: 1px solid color-mix(in oklab, var(--ink) 20%, transparent);
+  }
+  .swatch .icon {
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    color: var(--cat-glyph);
+    opacity: 0;
+  }
+  .swatch[aria-checked="true"] .icon { opacity: 1; }
+  .swatch[aria-checked="true"] {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
+  }
+
+  /* ============================================================ the rest */
+
+  .sheet-lede {
+    font-size: var(--fs-sm);
+    color: var(--ink-2);
+    max-inline-size: 46ch;
+  }
+  .sheet-lede strong { color: var(--ink); font-weight: 700; }
+
+  /* A menu rendered as a sheet: full-width targets, one per line. */
+  .sheet-menu .sheet-body { gap: var(--space-1); padding-inline: var(--space-3); }
+
+  .menu-list { display: grid; }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    padding: var(--space-3) var(--space-3);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink-2);
+    text-align: start;
+    border-radius: var(--r-sm);
+    transition: background var(--dur-2) var(--ease-out);
+  }
+  .menu-item:hover { background: var(--accent-wash); color: var(--ink); }
+  .menu-item .icon { inline-size: 1.25rem; block-size: 1.25rem; flex: none; opacity: 0.8; }
+  .menu-item-danger { color: var(--money-out); }
+  .menu-item-danger:hover { background: color-mix(in oklab, var(--money-out) 10%, transparent); }
+
+  .menu-item-sub {
+    display: block;
+    font-size: var(--fs-2xs);
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+
+  /* Same pair as the storage alert, and for the same reason: the coral that
+     clears 4.5 on a plain surface does not clear it on a surface tinted with
+     that coral. Both use the measured --danger-ink / --danger-wash pair. */
+  .danger-note {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--danger-ink);
+    padding: var(--space-3);
+    background: var(--danger-wash);
+    border-radius: var(--r-sm);
+  }
+
+  .btn-small { padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); }
+
+  /* ================================================== the data sheets --
+     Restore's preview, and the file input that feeds it. */
+
+  input[type="file"] {
+    inline-size: 100%;
+    font: inherit;
+    font-size: var(--fs-sm);
+    color: var(--ink-2);
+    padding: var(--space-3);
+    background: var(--sunken);
+    /* Dashed, because it is a drop target in everything but name and the
+       edge should not read as a filled field waiting to be typed in. */
+    border: 1px dashed var(--rule-strong);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+  }
+  input[type="file"]::file-selector-button {
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    margin-inline-end: var(--space-3);
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .preview {
+    display: grid;
+    gap: 0.1rem;
+    padding: var(--space-3) var(--space-4);
+    background: var(--sunken);
+    border-radius: var(--r-sm);
+    /* The accent edge marks this as the consequence of a choice rather than
+       another field to fill in. */
+    border-inline-start: 3px solid var(--accent);
+  }
+
+  .preview-head {
+    font-size: var(--fs-xs);
+    color: var(--ink-2);
+    padding-block-end: var(--space-2);
+    margin-block-end: var(--space-1);
+    border-block-end: 1px solid var(--rule);
+  }
+
+  .preview-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-4);
+    font-size: var(--fs-sm);
+    padding-block: 0.15rem;
+  }
+
+  /* Tone is the third signal here and never the first. Every row is named in
+     words — "Added", "Changed", "Deleted for good" — and every figure carries
+     its own sign, so the colour is confirming a fact that is already written
+     twice. */
+  .preview-row[data-tone="add"] { color: var(--money-in); }
+  .preview-row[data-tone="remove"] { color: var(--money-out); font-weight: 600; }
+  .preview-row[data-tone="total"] {
+    font-weight: 700;
+    color: var(--ink);
+    padding-block-start: var(--space-2);
+    margin-block-start: var(--space-1);
+    border-block-start: 1px solid var(--rule-strong);
+  }
+
+  .drawer-item-danger { color: var(--money-out); }
+  .drawer-item-danger:hover { background: color-mix(in oklab, var(--money-out) 10%, transparent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seg, .glyph, .menu-item { transition: none; }
+  }
+}

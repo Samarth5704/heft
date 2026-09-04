@@ -197,3 +197,31 @@ export function generateSampleTransactions({ today, makeId, months = 3, seed = 2
 
   return out;
 }
+
+/**
+ * A plausible monthly plan to go with the generated ledger.
+ *
+ * Deliberately partial: five categories budgeted, the rest not, so the
+ * Budgets tab demonstrates both of its sections — and, in particular, so
+ * "not budgeted this period" has real money in it rather than being an empty
+ * heading. The figures are set near the generator's own spending so the three
+ * bands (under, near, over) all appear across a three-month sample.
+ *
+ * Pure: months in, map out.
+ *
+ * @param {{today: string, months?: number}} opts
+ * @returns {Record<string, Record<string, number>>}
+ */
+export function generateSampleBudgets({ today, months = 3 }) {
+  const plan = {
+    food: 1200000,
+    transport: 500000,
+    rent: 2500000,
+    entertainment: 300000,
+    groceries: 800000,
+  };
+  const startKey = addMonths(monthKey(today), -(months - 1));
+  const out = {};
+  for (let m = 0; m < months; m += 1) out[addMonths(startKey, m)] = { ...plan };
+  return out;
+}

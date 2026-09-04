@@ -1,271 +1,285 @@
 /**
- * tokens.css — the whole visual system as custom properties.
+ * tokens.css — the whole visual system, in both themes.
  *
- * Three-state theming. An explicit choice stamps data-theme on <html>; the
- * default "system" stamps nothing, so only prefers-color-scheme separates the
- * two. Every colour has its definition on bare :root and is only *redefined*
- * in the dark blocks — nothing gets its sole definition inside a media query.
+ * Every colour pair in here was measured, not eyeballed. The reference
+ * screenshots fail WCAG AA badly on secondary text (grey on grey, around
+ * 2.5:1); the ratios below are recorded beside each token and re-derived from
+ * this very file by
+ *
+ *   node --experimental-default-type=module scripts/check-contrast.mjs
+ *
+ * which parses these blocks and fails on any pair under threshold. There is
+ * no second copy of the palette for it to drift from — change a hex here and
+ * the check either still passes or tells you what you broke.
+ *
+ * Two rules govern the structure:
+ *
+ * 1. Components never name a colour. They name a role — `--ink-2`,
+ *    `--surface`, `--money-out`. Switching theme redefines the roles and
+ *    touches no component CSS.
+ * 2. There are exactly three text grounds: `--bg` (the page and the ledger
+ *    rows), `--surface` (cards and dialogs), and `--band` (the header and the
+ *    tab bar). Anything rendering text sits on one of those three, and every
+ *    ink clears 4.5:1 on every ground it is actually used over.
  */
 
 @layer tokens {
   :root {
-    /* ---------------------------------------------------------- type ---- */
-    --font-display: Fraunces, 'Iowan Old Style', Georgia, 'Times New Roman', serif;
-    --font-ui: Inter, ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+    color-scheme: light dark;
 
-    /* Fluid scale, ~1.2 at the small end opening to ~1.33 at the large. */
-    --fs-2xs:  clamp(0.6875rem, 0.675rem + 0.06vw, 0.72rem);
-    --fs-xs:   clamp(0.75rem,   0.732rem + 0.09vw, 0.8125rem);
-    --fs-sm:   clamp(0.8125rem, 0.791rem + 0.11vw, 0.875rem);
-    --fs-base: clamp(0.9375rem, 0.911rem + 0.13vw, 1rem);
-    --fs-md:   clamp(1.0625rem, 1.021rem + 0.21vw, 1.1875rem);
-    --fs-lg:   clamp(1.25rem,   1.171rem + 0.39vw, 1.5rem);
-    --fs-xl:   clamp(1.5rem,    1.325rem + 0.87vw, 2.125rem);
-    --fs-2xl:  clamp(2rem,      1.646rem + 1.77vw, 3.25rem);
-    --fs-3xl:  clamp(2.5rem,    1.896rem + 3.02vw, 4.5rem);
+    /* ------------------------------------------------------------ type --
+       Quicksand for everything, numerals included — its rounded geometry is
+       what gives the reference its friendly feel. The script face is loaded
+       subset to the four letters of the wordmark and appears nowhere else. */
+    --font-ui: "Quicksand", ui-rounded, "Segoe UI", system-ui, sans-serif;
+    --font-script: "Yellowtail", "Brush Script MT", cursive;
 
-    --lh-tight: 1.06;
-    --lh-snug: 1.25;
-    --lh-body: 1.55;
-    --track-tight: -0.022em;
-    --track-normal: 0em;
-    --track-wide: 0.02em;
-    --track-caps: 0.12em;
+    --fs-2xs:  clamp(0.6875rem, 0.664rem + 0.12vw, 0.75rem);
+    --fs-xs:   clamp(0.75rem,   0.719rem + 0.16vw, 0.8125rem);
+    --fs-sm:   clamp(0.875rem,  0.844rem + 0.16vw, 0.9375rem);
+    --fs-base: clamp(1rem,      0.969rem + 0.16vw, 1.0625rem);
+    --fs-md:   clamp(1.0625rem, 1.016rem + 0.23vw, 1.1875rem);
+    --fs-lg:   clamp(1.25rem,   1.172rem + 0.39vw, 1.5rem);
+    --fs-xl:   clamp(1.5rem,    1.328rem + 0.86vw, 2.0625rem);
+    --fs-2xl:  clamp(1.875rem,  1.617rem + 1.29vw, 2.75rem);
 
-    /* ------------------------------------------------------- spacing ---- */
+    --lh-tight: 1.15;
+    --lh-body:  1.5;
+    --track-caps: 0.08em;
+
+    /* ---------------------------------------------------------- spacing --
+       A 4px base, named by step and never by pixel value, so density can be
+       retuned in one place. */
+    --space-0: 0;
     --space-1: 0.25rem;  --space-2: 0.5rem;   --space-3: 0.75rem;
     --space-4: 1rem;     --space-5: 1.5rem;   --space-6: 2rem;
     --space-7: 2.5rem;   --space-8: 3rem;     --space-9: 4rem;
-    --space-10: 5rem;    --space-11: 6rem;    --space-12: 8rem;
 
-    /* Generous margins: the page should breathe like a printed page. */
-    --gutter: clamp(1rem, 5vw, 4rem);
-    --page-max: 74rem;
-    --ledger-max: 46rem;
-    --measure: 64ch;
+    --r-sm: 0.375rem;
+    --r-md: 0.625rem;
+    --r-lg: 1rem;
+    --r-pill: 999px;
 
-    /* ------------------------------------------------------ geometry ---- */
-    --r-xs: 1px;  --r-sm: 2px;  --r-md: 4px;  --r-lg: 8px;  --r-pill: 999px;
-    --hairline: 1px;
+    --page-max: 34rem;   /* the reference is a phone; the shell keeps that measure */
+    --gutter: var(--space-4);
 
-    /* --------------------------------------------------------- paper ---- */
-    /* Warm off-white ground, near-black warm ink, one accent. */
-    --paper:        #f6f2e9;
-    --paper-sunken: #efe9dc;
-    --paper-raised: #fcfaf4;
-    --ink:    #17140f;  /* 16.4:1 */
-    --ink-2:  #423c31;  /*  9.8:1 */
-    --ink-3:  #6a6255;  /*  5.4:1 — the lightest ink ANY text may use */
-    --ink-4:  #978f80;  /*  2.9:1 — hairlines and marks only, never text */
-    --rule:        #dad3c2;
-    --rule-strong: #c3baa5;
+    /* -------------------------------------------------------- the shell --
+       The FAB's footprint is a token because every scroll container derives
+       its bottom padding from it. Hard-coding that padding is exactly how the
+       reference ends up with the FAB sitting on top of an amount. */
+    --fab-size: 3.5rem;
+    --fab-offset: var(--space-4);
+    --tabbar-height: 3.75rem;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-    --accent:       #1e4396;  /* 8.2:1 — interactive affordances, today marker */
-    --accent-hover: #16357b;
-    --accent-ink:   #ffffff;
-    --accent-wash:  color-mix(in oklab, var(--accent) 8%, var(--paper));
+    /* The clearance every scrollable pane owes the floating furniture: the
+       tab bar, the FAB stacked above it, and a breathing margin. */
+    --pane-bottom-clearance: calc(
+      var(--tabbar-height) + var(--safe-bottom)
+      + var(--fab-size) + var(--fab-offset) * 2 + var(--space-4)
+    );
 
-    /* Budget states. Never colour alone — always paired with words. */
-    --state-under: #2e6b4f;
-    --state-near:  #8a6212;
-    --state-over:  #8c2f2f;
+    /* --------------------------------------------------- weight signal --
+       `analytics.weightScale` is untouched: it still produces one number per
+       row, `--t` in [0,1], by the percentile-log method. What changed is how
+       much of the design consumes it. By default exactly two things do — the
+       spine and the amount's font weight — because uniform rows scan better
+       down a long ledger. Heft view reopens the rest. */
+    --t: 0.5;
 
-    /* ---------------------------------------------- category colours ---- */
-    /* Eight muted hues plus a neutral for "Other". Measured on this paper:
-       every swatch clears 3.2:1 and the minimum pairwise separation under
-       simulated protanopia / deuteranopia / tritanopia is ΔE 9.0. They are
-       always paired with a text label, never used as the only signal. */
-    --cat-1: #a8461a;  /* sienna   — Food & Dining   5.3:1  L* 42 */
-    --cat-2: #1f6f6b;  /* teal     — Groceries       5.3:1  L* 42 */
-    --cat-3: #4a6fa5;  /* slate    — Transport       4.6:1  L* 46 */
-    --cat-4: #2b3a6b;  /* indigo   — Rent & Bills    9.8:1  L* 26 */
-    --cat-5: #8a5a86;  /* mauve    — Shopping        4.8:1  L* 45 */
-    --cat-6: #7e3232;  /* clay     — Health          7.9:1  L* 32 */
-    --cat-7: #a87f26;  /* ochre    — Entertainment   3.3:1  L* 56 */
-    --cat-8: #5a7a4a;  /* sage     — Education       4.4:1  L* 48 */
-    --cat-neutral: #786f5f; /* warm grey — Other      4.4:1  L* 47 */
+    --w-weight-min: 500;
+    --w-weight-max: 700;
+    --w-weight: calc(var(--w-weight-min) + (var(--w-weight-max) - var(--w-weight-min)) * var(--t));
 
-    /* -------------------------------------------------------- light ---- */
-    /* One light direction, from above. Shadows are warm, never neutral grey. */
-    --shadow-raise:  0 1px 1px rgb(74 56 30 / 0.05), 0 2px 6px rgb(74 56 30 / 0.05);
-    --shadow-pop:    0 2px 3px rgb(74 56 30 / 0.06), 0 10px 24px -6px rgb(74 56 30 / 0.14);
-    --shadow-dialog: 0 4px 8px rgb(30 22 10 / 0.10), 0 24px 60px -12px rgb(30 22 10 / 0.26);
-    --scrim: rgb(40 32 18 / 0.34);
+    --w-spine-w-min: 2px;
+    --w-spine-w-max: 5px;
+    --w-spine-w: calc(var(--w-spine-w-min) + (var(--w-spine-w-max) - var(--w-spine-w-min)) * var(--t));
+
+    --w-spine-o-min: 0.30;
+    --w-spine-o-max: 1;
+    --w-spine-o: calc(var(--w-spine-o-min) + (var(--w-spine-o-max) - var(--w-spine-o-min)) * var(--t));
+
+    /* Heft view only: the topographic ends, where height, size and ink all
+       reopen. The amount floor is ~13px — the scale must never make a row
+       unreadable, which is the whole reason it is clamped. */
+    --w-row-pad-min: 0.55rem;
+    --w-row-pad-max: 1.15rem;
+    --w-amount-min: 0.8125rem;
+    --w-amount-max: 1.75rem;
+
+    /* ---------------------------------------------------------- motion -- */
+    --dur-1: 90ms;  --dur-2: 160ms; --dur-3: 260ms; --dur-4: 420ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
     --focus-width: 2px;
     --focus-offset: 2px;
-    --focus-color: var(--accent);
-
-    /* --------------------------------------------------------- grain ---- */
-    /* feTurbulence as a data URI, laid over the ground at low opacity so the
-       page reads as paper rather than as flat digital emptiness. */
-    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-    --grain-opacity: 0.055;
-    --grain-blend: multiply;
-
-    /* -------------------------------------------------------- motion ---- */
-    --dur-1: 90ms;   --dur-2: 160ms;  --dur-3: 260ms;  --dur-4: 420ms;
-    --ease-out: cubic-bezier(0.22, 0.7, 0.28, 1);
-    --ease-in-out: cubic-bezier(0.6, 0, 0.3, 1);
-    --ease-rise: cubic-bezier(0.2, 1.1, 0.35, 1);
-    --undo-window: 8s;
   }
 
-  /* System dark — applies unless the user has explicitly chosen light. */
+  /* =====================================================================
+     LIGHT — defined on bare :root, so a viewer with no explicit choice and
+     no dark preference still gets a complete palette.
+     ===================================================================== */
+  :root {
+    --bg:      #F4F1E8;   /* warm paper, the same olive family as the dark ground */
+    --surface: #FDFBF4;   /* cards, dialogs */
+    --band:    #E4DFCF;   /* header + tab bar */
+    --sunken:  #EAE6D9;   /* inset fields */
+
+    --ink:   #23221E;  /* bg 14.10  surface 15.38  band 11.94 */
+    --ink-2: #514D44;  /* bg  7.45  surface  8.13  band  6.31 */
+    --ink-3: #676356;  /* bg  5.32  surface  5.80  band  4.51 */
+    --rule:        #D9D3C1;
+    --rule-strong: #C2BBA6;
+
+    /* Butter yellow is a *surface* here, never text: at 1.2:1 against paper
+       it cannot carry a letterform. The FAB keeps the fill and gains a ring
+       so its boundary clears 3:1; accent-coloured text uses --accent-text. */
+    --accent:      #F2E96B;
+    --accent-ink:  #1A1915;  /* on --accent: 13.94 */
+    --accent-edge: #716300;  /* the ring; vs bg 5.33 */
+    --accent-text: #716300;  /* bg 5.33  surface 5.82  band 4.52 */
+    --accent-wash: color-mix(in oklab, var(--accent) 34%, var(--bg));
+
+    --money-out: #B23A2E;  /* expense — bg 5.26  surface 5.73 */
+    --money-in:  #1E6B42;  /* income  — bg 5.74  surface 6.27 */
+
+    /* A destructive warning sits on a tinted ground, and a tint is a third
+       ground that the three-grounds rule above does not cover. Mixing the
+       coral into the surface at render time was the mistake: it darkens the
+       backdrop under ink that was measured against the undarkened one, and
+       in dark theme it took the pair to 4.11. So the wash is a flat measured
+       colour and the ink on it is its own token, checked as a pair. */
+    --danger-wash: #F6E8E0;
+    --danger-ink:  #B23A2E;  /* on --danger-wash 4.96 */
+    --danger-edge: #C8705F;  /* the border — 3:1 against both grounds it meets */
+
+    --shadow-raise:  0 1px 1px rgb(74 56 30 / 0.05), 0 2px 6px rgb(74 56 30 / 0.06);
+    --shadow-pop:    0 2px 3px rgb(74 56 30 / 0.07), 0 10px 24px -6px rgb(74 56 30 / 0.16);
+    --shadow-dialog: 0 4px 8px rgb(30 22 10 / 0.10), 0 24px 60px -12px rgb(30 22 10 / 0.26);
+    --scrim: rgb(40 32 18 / 0.38);
+
+    --focus-color: var(--accent-edge);
+
+    /* Ten category hues. Each is a filled disc carrying a glyph, so the
+       glyph/disc pair must clear 4.5:1 and the disc/ground pair 3:1. Colour
+       is never the only differentiator: every chip carries a distinct
+       silhouette and a text label as well. */
+    --cat-1:  #B23A2E;  --cat-2:  #9A6413;  --cat-3:  #7A6B00;  --cat-4:  #4C6E24;
+    --cat-5:  #1E6B42;  --cat-6:  #146E66;  --cat-7:  #1D5E96;  --cat-8:  #4A42A8;
+    --cat-9:  #8A3382;  --cat-10: #7A4632;
+    --cat-neutral: #6B6658;   /* glyph 5.73  disc/bg 5.07 */
+    --cat-glyph: #FFFFFF;
+
+    /* Accounts reuse the same measured hues rather than opening a second
+       palette nobody has checked. They tint small marks, never text. */
+    --acct-1: var(--cat-7);  --acct-2: var(--cat-5);  --acct-3: var(--cat-9);
+    --acct-4: var(--cat-2);  --acct-5: var(--cat-6);  --acct-6: var(--cat-neutral);
+
+    /* A transfer creates and destroys nothing, so it is never coral or mint.
+       Ordinary body ink is the point: it reads as movement, not as money
+       arriving or leaving. */
+    --transfer-ink: var(--ink-2);
+  }
+
+  /* System dark, only when the viewer has not explicitly chosen light. */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --paper:        #15130f;
-      --paper-sunken: #100e0b;
-      --paper-raised: #201d16;
-      --ink:    #efeadd;  /* 15.5:1 */
-      --ink-2:  #c4bca9;  /*  9.8:1 */
-      --ink-3:  #9a9280;  /*  6.0:1 — lightest ink for text */
-      --ink-4:  #6e6757;  /*  3.3:1 — marks only */
-      --rule:        #332f26;
-      --rule-strong: #4a4437;
+      --bg:      #24231F;
+      --surface: #2E2D28;
+      --band:    #4A4840;
+      --sunken:  #1D1C19;
 
-      --accent:       #9db4f0;  /* 9.0:1 */
-      --accent-hover: #b8c8f6;
-      --accent-ink:   #101520;
-      --accent-wash:  color-mix(in oklab, var(--accent) 12%, var(--paper));
+      --ink:   #F2EFE6;  /* bg 13.68  surface 12.00  band 7.97 */
+      --ink-2: #CFC9BA;  /* bg  9.52  surface  8.35  band 5.55 */
+      --ink-3: #BAB6AC;  /* bg  7.77  surface  6.82  band 4.53 */
+      --rule:        #3A3830;
+      --rule-strong: #4F4C43;
 
-      --state-under: #6cc79a;
-      --state-near:  #d8b45c;
-      --state-over:  #e28b8b;
+      --accent:      #F2E96B;
+      --accent-ink:  #1A1915;      /* on --accent: 13.94 */
+      --accent-edge: transparent;  /* 12.46 against the page; no ring needed */
+      --accent-text: #F2E96B;      /* bg 12.46  surface 10.93  band 7.26 */
+      --accent-wash: color-mix(in oklab, var(--accent) 14%, var(--bg));
 
-      /* Same hues, lifted for a dark ground. Minimum pairwise separation
-         under simulated CVD is ΔE 8.7; every swatch clears 5:1. */
-      --cat-1: #e08c55;  --cat-2: #4fb0a6;  --cat-3: #86c6e2;
-      --cat-4: #8481ce;  --cat-5: #d294c4;  --cat-6: #c96a6a;
-      --cat-7: #e5c264;  --cat-8: #9ac77e;  --cat-neutral: #a79e8b;
+      --money-out: #EA736A;  /* bg 5.36  surface 4.70 */
+      --money-in:  #6FCF97;  /* bg 8.27  surface 7.26 */
+
+      /* Lighter than --money-out by design: the same coral that clears 4.70
+         on the plain surface only manages 4.11 once the surface is tinted
+         with it. See the note in the light block. */
+      --danger-wash: #41342F;
+      --danger-ink:  #ED847C;  /* on --danger-wash 4.66 */
+      --danger-edge: #A85950;
 
       --shadow-raise:  0 1px 1px rgb(0 0 0 / 0.30), 0 2px 6px rgb(0 0 0 / 0.28);
       --shadow-pop:    0 2px 3px rgb(0 0 0 / 0.34), 0 10px 24px -6px rgb(0 0 0 / 0.50);
       --shadow-dialog: 0 4px 8px rgb(0 0 0 / 0.44), 0 24px 60px -12px rgb(0 0 0 / 0.62);
       --scrim: rgb(8 6 4 / 0.62);
 
-      --grain-opacity: 0.075;
-      --grain-blend: screen;
+      --focus-color: var(--accent);
+
+      --cat-1:  #E8695E;  --cat-2:  #E9A13B;  --cat-3:  #E7D14E;  --cat-4:  #8FBF5A;
+      --cat-5:  #6FCF97;  --cat-6:  #4FBFB2;  --cat-7:  #6BAEE8;  --cat-8:  #9A93E8;
+      --cat-9:  #D98CD1;  --cat-10: #C4907A;
+      --cat-neutral: #B9B3A4;   /* glyph 8.42  disc/bg 7.52 */
+      --cat-glyph: #1A1915;
+
+      --acct-1: var(--cat-7);  --acct-2: var(--cat-5);  --acct-3: var(--cat-9);
+      --acct-4: var(--cat-2);  --acct-5: var(--cat-6);  --acct-6: var(--cat-neutral);
+
+      --transfer-ink: var(--ink-2);
     }
   }
 
-  /* Explicit dark — wins in both directions. */
+  /* Explicit dark — wins in both directions. The body is identical to the
+     block above; the duplication is deliberate, so neither the toggle nor the
+     system preference can ever leave a token undefined. */
   :root[data-theme="dark"] {
-    --paper:        #15130f;
-    --paper-sunken: #100e0b;
-    --paper-raised: #201d16;
-    --ink:    #efeadd;
-    --ink-2:  #c4bca9;
-    --ink-3:  #9a9280;
-    --ink-4:  #6e6757;
-    --rule:        #332f26;
-    --rule-strong: #4a4437;
+    --bg:      #24231F;
+    --surface: #2E2D28;
+    --band:    #4A4840;
+    --sunken:  #1D1C19;
 
-    --accent:       #9db4f0;
-    --accent-hover: #b8c8f6;
-    --accent-ink:   #101520;
-    --accent-wash:  color-mix(in oklab, var(--accent) 12%, var(--paper));
+    --ink:   #F2EFE6;
+    --ink-2: #CFC9BA;
+    --ink-3: #BAB6AC;
+    --rule:        #3A3830;
+    --rule-strong: #4F4C43;
 
-    --state-under: #6cc79a;
-    --state-near:  #d8b45c;
-    --state-over:  #e28b8b;
+    --accent:      #F2E96B;
+    --accent-ink:  #1A1915;
+    --accent-edge: transparent;
+    --accent-text: #F2E96B;
+    --accent-wash: color-mix(in oklab, var(--accent) 14%, var(--bg));
 
-    --cat-1: #e08c55;  --cat-2: #4fb0a6;  --cat-3: #86c6e2;
-    --cat-4: #8481ce;  --cat-5: #d294c4;  --cat-6: #c96a6a;
-    --cat-7: #e5c264;  --cat-8: #9ac77e;  --cat-neutral: #a79e8b;
+    --money-out: #EA736A;
+    --money-in:  #6FCF97;
+
+    --danger-wash: #41342F;
+    --danger-ink:  #ED847C;  /* on --danger-wash 4.66 */
+    --danger-edge: #A85950;
 
     --shadow-raise:  0 1px 1px rgb(0 0 0 / 0.30), 0 2px 6px rgb(0 0 0 / 0.28);
     --shadow-pop:    0 2px 3px rgb(0 0 0 / 0.34), 0 10px 24px -6px rgb(0 0 0 / 0.50);
     --shadow-dialog: 0 4px 8px rgb(0 0 0 / 0.44), 0 24px 60px -12px rgb(0 0 0 / 0.62);
     --scrim: rgb(8 6 4 / 0.62);
 
-    --grain-opacity: 0.075;
-    --grain-blend: screen;
+    --focus-color: var(--accent);
+
+    --cat-1:  #E8695E;  --cat-2:  #E9A13B;  --cat-3:  #E7D14E;  --cat-4:  #8FBF5A;
+    --cat-5:  #6FCF97;  --cat-6:  #4FBFB2;  --cat-7:  #6BAEE8;  --cat-8:  #9A93E8;
+    --cat-9:  #D98CD1;  --cat-10: #C4907A;
+    --cat-neutral: #B9B3A4;   /* glyph 8.42  disc/bg 7.52 */
+    --cat-glyph: #1A1915;
+
+    --acct-1: var(--cat-7);  --acct-2: var(--cat-5);  --acct-3: var(--cat-9);
+    --acct-4: var(--cat-2);  --acct-5: var(--cat-6);  --acct-6: var(--cat-neutral);
+
+    --transfer-ink: var(--ink-2);
   }
 
   @media (prefers-reduced-motion: reduce) {
     :root { --dur-1: 1ms; --dur-2: 1ms; --dur-3: 1ms; --dur-4: 1ms; }
-  }
-
-  /* =====================================================================
-     THE WEIGHT INTERPOLATION
-
-     JavaScript sets exactly one number on a row — style="--t: 0.73" — and
-     touches nothing else. Everything below interpolates between a light end
-     (t = 0) and a heavy end (t = 1) in pure CSS.
-
-     Change the feel of the whole ledger by editing the two ends. Nothing in
-     JavaScript needs to know these numbers exist.
-     ===================================================================== */
-  :root {
-    /* row padding: how much air a row claims */
-    --w-pad-min: 0.34rem;
-    --w-pad-max: 1.15rem;
-
-    /* amount type size. The floor is a hard accessibility limit: an amount
-       is readable text first and a visual weight second. 15px, never less. */
-    --w-size-min: 0.9375rem;
-    --w-size-max: 2.6rem;
-
-    /* variable-font weight, and optical tightening as the type grows */
-    --w-weight-min: 400;
-    --w-weight-max: 700;
-    --w-track-min: 0.012em;
-    --w-track-max: -0.024em;
-
-    /* ink density: from the lightest ink that still clears 4.5:1, to full */
-    --w-ink-light: var(--ink-3);
-    --w-ink-heavy: var(--ink);
-
-    /* the hairline under the row */
-    --w-rule-min: 0.5px;
-    --w-rule-max: 2.75px;
-    --w-rule-tint-min: 14;   /* percent of ink mixed into the rule */
-    --w-rule-tint-max: 46;
-
-    /* the spine at the row's left edge */
-    --w-spine-min: 20;       /* percent of row height */
-    --w-spine-max: 100;
-    --w-spine-tint-min: 12;  /* percent of accent */
-    --w-spine-tint-max: 52;
-  }
-
-  /**
-   * Any element carrying --t gets the interpolated values. Rows opt in with
-   * class="weighted"; the 0.5 fallback means a row with no --t yet still
-   * renders at a sane middle weight rather than collapsing.
-   */
-  .weighted {
-    --t: 0.5;
-    --w-pad: calc(var(--w-pad-min) + (var(--w-pad-max) - var(--w-pad-min)) * var(--t));
-    --w-size: clamp(
-      var(--w-size-min),
-      calc(var(--w-size-min) + (var(--w-size-max) - var(--w-size-min)) * var(--t)),
-      var(--w-size-max)
-    );
-    --w-weight: calc(var(--w-weight-min) + (var(--w-weight-max) - var(--w-weight-min)) * var(--t));
-    --w-track: calc(var(--w-track-min) + (var(--w-track-max) - var(--w-track-min)) * var(--t));
-    --w-ink: color-mix(in oklab, var(--w-ink-heavy) calc(var(--t) * 100%), var(--w-ink-light));
-    --w-rule: calc(var(--w-rule-min) + (var(--w-rule-max) - var(--w-rule-min)) * var(--t));
-    --w-rule-color: color-mix(
-      in oklab,
-      var(--ink) calc((var(--w-rule-tint-min) + (var(--w-rule-tint-max) - var(--w-rule-tint-min)) * var(--t)) * 1%),
-      transparent
-    );
-    --w-spine-height: calc((var(--w-spine-min) + (var(--w-spine-max) - var(--w-spine-min)) * var(--t)) * 1%);
-    --w-spine-color: color-mix(
-      in oklab,
-      var(--accent) calc((var(--w-spine-tint-min) + (var(--w-spine-tint-max) - var(--w-spine-tint-min)) * var(--t)) * 1%),
-      transparent
-    );
-  }
-
-  /* Filtering re-normalises every --t at once. Transitioning the interpolated
-     properties is what makes the topography visibly re-form. */
-  .weighted {
-    transition:
-      padding-block var(--dur-3) var(--ease-out),
-      color var(--dur-3) var(--ease-out);
   }
 }

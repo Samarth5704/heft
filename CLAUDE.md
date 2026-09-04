@@ -113,6 +113,17 @@ has a test. Keep it green before writing UI.
   expense. Any total that includes a transfer is a bug.
 - Account balances are DERIVED from opening balance + transactions. Never
   stored as a mutable field, never incremented in place.
+- A budget belongs to a MONTH and a category — `budgets['YYYY-MM'][categoryId]`
+  — never to the category itself. An absent key means untracked, which is not
+  the same fact as a budget of zero, and the two are shown differently. A
+  period that is not one whole month prorates the monthly figure
+  (`analytics.budgetForRange`); there is exactly one set of budgets, never one
+  per view mode.
+- Budgets apply to expense categories only. An income category has nothing to
+  pace against, and offering one would put income into a "spent" figure.
+- A category's `kind` is immutable once chosen. Changing it would not
+  reclassify anything — it would rewrite every total the category has ever
+  been part of. The UI explains this rather than only disabling the control.
 - `lib/` has zero DOM access. `ui/` never writes to localStorage.
 - All state mutation goes through `store.js`. Views subscribe.
 - Never re-render a list with `innerHTML` on change. Reconcile keyed nodes.

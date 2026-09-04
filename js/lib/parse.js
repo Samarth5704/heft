@@ -9,6 +9,15 @@
  * Pass order matters. Dates are claimed first so the `23` in `23 jan` is not
  * mistaken for an amount; the amount is claimed next; categories last.
  *
+ * Three kinds, decided before anything else is read
+ * -------------------------------------------------
+ *   `250 chai`            an expense — the unmarked default
+ *   `+5000 salary`        income; a leading `+` is the marker
+ *   `2000 idfc to cash`   a transfer between two accounts
+ *
+ * The kind is settled first because it decides what the rest of the line
+ * means: categories are scoped to it, and a transfer has no category at all.
+ *
  * Documented precedence rules
  * ---------------------------
  * Amount, when several numbers survive the date pass:
@@ -21,6 +30,22 @@
  * A category *name* is consumed from the note (`480 food` leaves no note).
  * A *synonym* is not (`swiggy 480` keeps "swiggy" as the note) — the synonym
  * is what you spent it on, and losing it would lose the only description.
+ *
+ * **Accounts and categories can share a name, and the separator decides.**
+ * With an account "Card" and a category "Card" both present:
+ *
+ *   `2000 card`           → the CATEGORY. Account names are only ever read
+ *                           on the two sides of a transfer separator, so
+ *                           outside one they cannot claim a token at all.
+ *   `2000 bank to card`   → the ACCOUNT, on both sides. `to` between two
+ *                           names that are both accounts is unambiguous
+ *                           transfer syntax, and a transfer has no category
+ *                           for the word to have meant instead.
+ *
+ * The rule in one line: a transfer separator flanked by two known accounts
+ * wins over everything; without one, account names are not consulted. That is
+ * also why `250 lunch to mom` stays an expense with the note "lunch to mom" —
+ * "lunch" and "mom" are not accounts, so nothing about it is a transfer.
  *
  * Pure module: no DOM, no globals, no clock. `today` is always an argument.
  */
@@ -247,6 +272,82 @@ function findAmount(tokens) {
   return { paise: best.paise, claimed: best.claimed, extra: candidates.length - 1 };
 }
 
+/**
+ * The words that mean "and into". `to` is the documented one; the arrows are
+ * accepted because they are what people type when they are in a hurry.
+ */
+const TRANSFER_SEPARATORS = new Set(['to', '>', '->', '→']);
+
+const isSeparator = (tok) => TRANSFER_SEPARATORS.has(tok.bare.toLowerCase());
+
+/** Name -> account id, whole names and their individual words alike. */
+export function buildAccountIndex(accounts = []) {
+  const names = new Map();
+  for (const account of accounts) {
+    if (account.archived) continue;
+    const full = norm(account.name);
+    if (!full) continue;
+    if (!names.has(full)) names.set(full, account.id);
+    for (const word of full.split(' ')) {
+      if (word.length >= 2 && !names.has(word)) names.set(word, account.id);
+    }
+  }
+  return names;
+}
+
+/**
+ * Match an account name in the run of tokens ending at `end` (walking
+ * backwards) or starting at `start` (walking forwards). Longest match wins,
+ * so a two-word "HDFC Bank" is preferred over the bare "Bank".
+ */
+function matchAccountBefore(tokens, end, index) {
+  for (let len = Math.min(3, end + 1); len >= 1; len -= 1) {
+    const span = tokens.slice(end - len + 1, end + 1);
+    if (span.length !== len || span.some((t) => t.claimed)) continue;
+    const id = index.get(norm(span.map((t) => t.bare).join(' ')));
+    if (id) return { id, claimed: span };
+  }
+  return null;
+}
+
+function matchAccountAfter(tokens, start, index) {
+  for (let len = Math.min(3, tokens.length - start); len >= 1; len -= 1) {
+    const span = tokens.slice(start, start + len);
+    if (span.length !== len || span.some((t) => t.claimed)) continue;
+    const id = index.get(norm(span.map((t) => t.bare).join(' ')));
+    if (id) return { id, claimed: span };
+  }
+  return null;
+}
+
+/**
+ * A transfer is a separator with a known account on each side — nothing less.
+ *
+ * Requiring both sides is what keeps "gift to mom" an ordinary expense: the
+ * word `to` on its own means nothing, and a line is only re-read as a
+ * transfer when the accounts it names actually exist.
+ */
+function findTransfer(tokens, accountIndex) {
+  if (accountIndex.size === 0) return null;
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i].claimed || !isSeparator(tokens[i])) continue;
+    const from = matchAccountBefore(tokens, i - 1, accountIndex);
+    if (!from) continue;
+    const to = matchAccountAfter(tokens, i + 1, accountIndex);
+    if (!to) continue;
+    // Money cannot move from an account into itself. Refuse rather than
+    // inventing a record that moves nothing.
+    if (from.id === to.id) return { same: true, fromId: from.id, toId: to.id, claimed: [] };
+    return {
+      same: false,
+      fromId: from.id,
+      toId: to.id,
+      claimed: [...from.claimed, tokens[i], ...to.claimed],
+    };
+  }
+  return null;
+}
+
 /** Build lookup tables from the caller's categories. */
 export function buildCategoryIndex(categories = []) {
   const names = new Map();
@@ -293,28 +394,33 @@ function findSynonym(tokens, index) {
 }
 
 /**
- * Parse a quick-add line into a draft expense.
+ * Parse a quick-add line into a draft transaction.
+ *
  * @param {string} input
- * @param {{categories: Array, today: string, defaultCategoryId?: string,
+ * @param {{categories: Array, accounts?: Array, today: string,
+ *   defaultCategoryId?: string, defaultAccountId?: string,
  *   kind?: 'expense'|'income'}} ctx
- * @returns {{ok: boolean, amountPaise: number|null, date: string,
- *   categoryId: string|null, note: string, matchedBy: string,
- *   error: string|null, message: string|null, warnings: string[]}}
+ *   `kind` is the kind to assume when the line carries no marker of its own;
+ *   a `+` or a transfer separator in the line overrides it.
+ * @returns {{ok: boolean, kind: 'expense'|'income'|'transfer',
+ *   amountPaise: number|null, date: string, categoryId: string|null,
+ *   accountId: string|null, toAccountId: string|null, note: string,
+ *   matchedBy: string, error: string|null, message: string|null,
+ *   warnings: string[]}}
  */
 export function parseQuickAdd(input, ctx = {}) {
-  // Categories are scoped by kind, so an expense-context parse can never
-  // match an income category — typing 'salary' on the expense line must not
-  // silently file the spend under money you earned.
-  const kind = ctx.kind ?? 'expense';
-  const categories = (ctx.categories ?? []).filter((c) => (c.kind ?? 'expense') === kind);
   const todayISO = ctx.today;
-  const fallback = ctx.defaultCategoryId ?? categories[0]?.id ?? null;
+  const accounts = (ctx.accounts ?? []).filter((a) => !a.archived);
+  const defaultAccountId = ctx.defaultAccountId ?? accounts[0]?.id ?? null;
 
   const base = {
     ok: false,
+    kind: ctx.kind ?? 'expense',
     amountPaise: null,
     date: todayISO,
-    categoryId: fallback,
+    categoryId: null,
+    accountId: defaultAccountId,
+    toAccountId: null,
     note: '',
     matchedBy: 'default',
     error: null,
@@ -326,7 +432,45 @@ export function parseQuickAdd(input, ctx = {}) {
     return { ...base, error: 'empty', message: 'Type an amount to get started.' };
   }
 
-  const tokens = tokenize(input);
+  /* The income marker is read off the raw string and removed before anything
+     is tokenized. It has to go: `+5000` is not a number the amount pass can
+     read, and leaving it in would cost the line its amount. */
+  const trimmed = input.trim();
+  const marked = trimmed.startsWith('+');
+  const line = marked ? trimmed.slice(1) : trimmed;
+
+  const tokens = tokenize(line);
+  const accountIndex = buildAccountIndex(accounts);
+
+  /* Kind first. A transfer separator between two real accounts outrules the
+     `+` marker — `+2000 cash to bank` is still money moving, not money
+     arriving, and there is nowhere in a transfer for income to live. */
+  const transferHit = findTransfer(tokens, accountIndex);
+  let kind = base.kind;
+  if (transferHit) kind = 'transfer';
+  else if (marked) kind = 'income';
+
+  if (transferHit?.same) {
+    return {
+      ...base,
+      kind: 'transfer',
+      error: 'same-account',
+      message: 'Pick two different accounts to move money between.',
+    };
+  }
+  if (transferHit) for (const t of transferHit.claimed) t.claimed = 'transfer';
+
+  // Categories are scoped by kind, so an expense-context parse can never
+  // match an income category — typing 'salary' on an unmarked line must not
+  // silently file the spend under money you earned. A transfer has no
+  // category at all, so it consults none.
+  const categories = kind === 'transfer'
+    ? []
+    : (ctx.categories ?? []).filter((c) => (c.kind ?? 'expense') === kind && !c.archived);
+  const fallback = kind === 'transfer'
+    ? null
+    : ctx.defaultCategoryId ?? categories[0]?.id ?? null;
+
   const index = buildCategoryIndex(categories);
 
   const dateHit = findDate(tokens, todayISO);
@@ -336,18 +480,20 @@ export function parseQuickAdd(input, ctx = {}) {
   if (amountHit) for (const t of amountHit.claimed) t.claimed = 'amount';
 
   let categoryId = fallback;
-  let matchedBy = 'default';
-  const nameHit = findCategoryName(tokens, index);
-  if (nameHit) {
-    categoryId = nameHit.id;
-    matchedBy = 'name';
-    for (const t of nameHit.claimed) t.claimed = 'category';
-  } else {
-    const synHit = findSynonym(tokens, index);
-    if (synHit) {
-      categoryId = synHit.id;
-      matchedBy = 'synonym';
-      // Deliberately not claimed: the synonym stays in the note.
+  let matchedBy = kind === 'transfer' ? 'none' : 'default';
+  if (kind !== 'transfer') {
+    const nameHit = findCategoryName(tokens, index);
+    if (nameHit) {
+      categoryId = nameHit.id;
+      matchedBy = 'name';
+      for (const t of nameHit.claimed) t.claimed = 'category';
+    } else {
+      const synHit = findSynonym(tokens, index);
+      if (synHit) {
+        categoryId = synHit.id;
+        matchedBy = 'synonym';
+        // Deliberately not claimed: the synonym stays in the note.
+      }
     }
   }
 
@@ -359,8 +505,11 @@ export function parseQuickAdd(input, ctx = {}) {
 
   const resolved = {
     ...base,
+    kind,
     date: dateHit ? dateHit.date : todayISO,
     categoryId,
+    accountId: transferHit ? transferHit.fromId : defaultAccountId,
+    toAccountId: transferHit ? transferHit.toId : null,
     matchedBy,
     note,
     warnings,
@@ -370,11 +519,22 @@ export function parseQuickAdd(input, ctx = {}) {
     return {
       ...resolved,
       error: 'no-amount',
-      message: 'No amount found. Try “250 chai” or “1.2k rent”.',
+      message: kind === 'transfer'
+        ? 'No amount found. Try “2000 cash to bank”.'
+        : 'No amount found. Try “250 chai” or “1.2k rent”.',
     };
   }
   if (amountHit.paise <= 0) {
     return { ...resolved, error: 'zero-amount', message: 'Amount must be more than zero.' };
+  }
+  if (kind !== 'transfer' && !categoryId) {
+    return {
+      ...resolved,
+      error: 'no-category',
+      message: kind === 'income'
+        ? 'No income category to file this under yet.'
+        : 'No category to file this under yet.',
+    };
   }
 
   return { ...resolved, ok: true, amountPaise: amountHit.paise };

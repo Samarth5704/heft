@@ -18,7 +18,7 @@
 import { CURRENT_SCHEMA_VERSION, defaultState, migrate, normalise } from './storage.js';
 
 export const EXPORT_FORMAT = 'heft.export';
-export const EXPORT_FORMAT_VERSION = 2;
+export const EXPORT_FORMAT_VERSION = 3;
 
 /**
  * Wrap state for export. The envelope carries provenance; `data` is exactly
@@ -35,6 +35,7 @@ export function buildExport(state, { exportedAt = new Date().toISOString() } = {
       transactions: state.transactions ?? [],
       accounts: state.accounts ?? [],
       categories: state.categories ?? [],
+      budgets: state.budgets ?? {},
       settings: state.settings ?? {},
     },
   };
@@ -106,38 +107,67 @@ export function summariseImport(current, incoming) {
   const currentAccountIds = idsOf(current.accounts);
 
   const newTransactions = incoming.transactions.filter((t) => !currentTransactionIds.has(t.id));
-  const duplicates = incoming.transactions.length - newTransactions.length;
+  // A conflict is one id in both files. It is the number the preview has to
+  // lead with, because it is the only one where the two modes disagree about
+  // what happens to a record that already exists: merge keeps yours, replace
+  // takes theirs. Everything else is addition either way.
+  const conflicts = incoming.transactions.length - newTransactions.length;
   const newCategories = incoming.categories.filter((c) => !currentCategoryIds.has(c.id));
   const newAccounts = (incoming.accounts ?? []).filter((a) => !currentAccountIds.has(a.id));
 
   return {
+    conflicts,
     incoming: {
       transactions: incoming.transactions.length,
       categories: incoming.categories.length,
       accounts: (incoming.accounts ?? []).length,
+      budgetMonths: Object.keys(incoming.budgets ?? {}).length,
     },
     current: {
       transactions: current.transactions.length,
       categories: current.categories.length,
       accounts: (current.accounts ?? []).length,
+      budgetMonths: Object.keys(current.budgets ?? {}).length,
     },
+    // `transactionsUpdated` is 0 for merge and says so out loud rather than
+    // being left out. "Nothing you already have will change" is the promise
+    // this whole module exists to keep, and a preview that omits the figure
+    // is not making the promise, it is just not mentioning it.
     merge: {
       transactionsAdded: newTransactions.length,
-      transactionsSkipped: duplicates,
+      transactionsUpdated: 0,
+      transactionsSkipped: conflicts,
       categoriesAdded: newCategories.length,
       accountsAdded: newAccounts.length,
       transactionsAfter: current.transactions.length + newTransactions.length,
       transactionsRemoved: 0,
     },
     replace: {
-      transactionsAdded: incoming.transactions.length,
+      transactionsAdded: newTransactions.length,
+      transactionsUpdated: conflicts,
       transactionsSkipped: 0,
       categoriesAdded: newCategories.length,
       accountsAdded: newAccounts.length,
       transactionsAfter: incoming.transactions.length,
-      transactionsRemoved: current.transactions.length,
+      // What replace destroys: everything here that is not in the file. The
+      // conflicting ones are overwritten rather than lost, which is a
+      // different fact and gets a different line.
+      transactionsRemoved: current.transactions.length - conflicts,
     },
   };
+}
+
+/**
+ * Budgets merge month by month and category by category, and the existing
+ * figure wins — the same rule as every other record here. A budget the user
+ * changed this morning must not be reverted by a file exported last week.
+ */
+function mergeBudgets(current = {}, incoming = {}) {
+  const out = { ...(incoming ?? {}) };
+  for (const [key, month] of Object.entries(current ?? {})) {
+    out[key] = { ...(out[key] ?? {}), ...month };
+  }
+  return out;
 }
 
 /**
@@ -169,6 +199,7 @@ export function mergeStates(current, incoming) {
       ...current.transactions,
       ...incoming.transactions.filter((t) => !existingTransactionIds.has(t.id)),
     ],
+    budgets: mergeBudgets(current.budgets, incoming.budgets),
     settings: current.settings,
   });
 }
@@ -188,6 +219,9 @@ export function clearedState(current) {
     transactions: [],
     accounts: current.accounts,
     categories: current.categories,
+    // The plan survives the ledger being emptied: budgets are what you intend
+    // to spend, not a record of what you did.
+    budgets: current.budgets,
     settings: current.settings,
   });
 }

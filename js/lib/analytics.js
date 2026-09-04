@@ -14,9 +14,9 @@
 
 import { sumPaise } from './money.js';
 import {
-  addDays, compare, datesInMonth, monthKey, monthKeyParts,
-  addMonths, dayOfWeek, diffDays, parts, periodRange, periodsEndingAt,
-  periodLength, isInRange,
+  addDays, compare, datesInMonth, daysInMonth, daysOfMonthInRange, monthKey,
+  monthKeyParts, addMonths, dayOfWeek, diffDays, monthsInRange, parts,
+  periodRange, periodsEndingAt, periodLength, isInRange,
 } from './dates.js';
 
 /* ------------------------------------------------------------------ kinds */
@@ -24,6 +24,29 @@ import {
 export const isTransfer = (t) => t.kind === 'transfer';
 export const isExpense = (t) => t.kind === 'transaction' && t.direction === 'expense';
 export const isIncome = (t) => t.kind === 'transaction' && t.direction === 'income';
+
+/**
+ * The three things a chart can be a chart *of*. Naming them is what keeps the
+ * Analysis tab from growing a fourth vocabulary for the same question.
+ */
+export const VIEWS = Object.freeze(['expense', 'income', 'net']);
+
+/**
+ * The signed contribution one transaction makes to a view.
+ *
+ * This is the single place the transfer rule is enforced for every series
+ * below: a transfer contributes zero to all three views, because it is
+ * neither money earned nor money spent. Everything that buckets, sums or
+ * plots goes through here rather than reaching for `amountPaise` itself.
+ */
+export function viewAmount(transaction, view = 'expense') {
+  if (view === 'income') return isIncome(transaction) ? transaction.amountPaise : 0;
+  if (view === 'net') {
+    if (isIncome(transaction)) return transaction.amountPaise;
+    return isExpense(transaction) ? -transaction.amountPaise : 0;
+  }
+  return isExpense(transaction) ? transaction.amountPaise : 0;
+}
 
 export const expensesOf = (transactions = []) => transactions.filter(isExpense);
 export const incomeOf = (transactions = []) => transactions.filter(isIncome);
@@ -186,27 +209,32 @@ export function netWorth(accounts = [], transactions = []) {
 
 /* ------------------------------------------------------------ day buckets */
 
-/** One entry per calendar day of the month, zero-filled. Expenses only. */
-export function dailyTotals(transactions = [], key) {
+/** One entry per calendar day of the month, zero-filled. Expenses by default. */
+export function dailyTotals(transactions = [], key, view = 'expense') {
   const dates = datesInMonth(key);
   const map = new Map(dates.map((d) => [d, 0]));
-  for (const t of expensesOf(transactions)) {
-    if (map.has(t.date)) map.set(t.date, map.get(t.date) + t.amountPaise);
+  for (const t of transactions) {
+    if (map.has(t.date)) map.set(t.date, map.get(t.date) + viewAmount(t, view));
   }
   return dates.map((date) => ({ date, totalPaise: map.get(date) }));
 }
 
 /**
- * Daily expense totals across an arbitrary inclusive date range, zero-filled.
+ * Daily totals across an arbitrary inclusive date range, zero-filled.
+ *
  * The rolling average needs the days *before* a period starts, or the line
  * would restart from nothing on the first of every month.
+ *
+ * `view` picks what is being totalled. It defaults to expense, so every
+ * existing caller keeps the meaning it was written with; the net view is the
+ * only one whose values can be negative.
  */
-export function dailyTotalsBetween(transactions = [], startISO, endISO) {
+export function dailyTotalsBetween(transactions = [], startISO, endISO, view = 'expense') {
   if (!startISO || !endISO || compare(startISO, endISO) > 0) return [];
   const map = new Map();
   for (let d = startISO; compare(d, endISO) <= 0; d = addDays(d, 1)) map.set(d, 0);
-  for (const t of expensesOf(transactions)) {
-    if (map.has(t.date)) map.set(t.date, map.get(t.date) + t.amountPaise);
+  for (const t of transactions) {
+    if (map.has(t.date)) map.set(t.date, map.get(t.date) + viewAmount(t, view));
   }
   return [...map.entries()].map(([date, totalPaise]) => ({ date, totalPaise }));
 }
@@ -287,11 +315,13 @@ export function daysElapsed(key, todayISO) {
  * nothing is a real day, and dropping it flatters both numbers. Mean is
  * dragged up by rent and EMIs; median is what an ordinary day costs.
  *
- * Income and transfers are not spending and are excluded throughout.
+ * Income and transfers are not spending, so the default view excludes both.
+ * The Analysis tab asks the same question of income and of net by naming a
+ * different view; a transfer is excluded from all three by `viewAmount`.
  */
-export function dailySpendStatsForRange(transactions = [], range, todayISO) {
+export function dailySpendStatsForRange(transactions = [], range, todayISO, view = 'expense') {
   const elapsed = daysElapsedIn(range, todayISO);
-  const series = dailyTotalsBetween(inRange(transactions, range), range.start, range.end)
+  const series = dailyTotalsBetween(inRange(transactions, range), range.start, range.end, view)
     .slice(0, elapsed)
     .map((d) => d.totalPaise);
   return {
@@ -527,63 +557,153 @@ export function pace({ budgetPaise, spentPaise, monthKey: key, today }) {
   const result = paceForRange({ budgetPaise, spentPaise, range, today });
   return { ...result, monthKey: key, daysInMonth: result.daysInPeriod };
 }
+/* ------------------------------------------------------- budgets by month */
 
 /**
- * Per-category budget report for a range, plus the unbudgeted remainder.
+ * The budget a monthly plan implies for an arbitrary period.
+ *
+ * Budgets are set per month; periods are days, weeks, months, quarters,
+ * halves and years. Rather than storing six parallel sets of budgets that
+ * could disagree with one another, one monthly figure is prorated across
+ * whatever the period actually covers: a week gets the share of its month it
+ * occupies, a six-month view gets six months added together, and a whole
+ * month gets exactly its own figure back with no arithmetic at all.
+ *
+ * **A category with no entry in any covered month returns null, not zero.**
+ * Untracked and "planned to spend nothing" are different facts, and the two
+ * sections of the Budgets tab are exactly that distinction. Collapsing them is
+ * how a category silently moves into the budgeted list at a budget of ₹0 and
+ * reads as an overrun on the first rupee.
+ *
+ * @param {Record<string, Record<string, number>>} budgets
+ * @returns {number|null} integer paise, or null when nothing is budgeted
+ */
+export function budgetForRange(budgets = {}, categoryId, range) {
+  const months = monthsInRange(range);
+  if (months.length === 0) return null;
+
+  let total = 0;
+  let tracked = false;
+  for (const key of months) {
+    const paise = budgets?.[key]?.[categoryId];
+    if (!Number.isFinite(paise)) continue;
+    tracked = true;
+    const covered = daysOfMonthInRange(key, range);
+    const whole = daysInMonth(key);
+    // A whole month contributes its whole figure, with no rounding step to
+    // drift by a paise; only a partial month is prorated.
+    total += covered >= whole ? paise : Math.round((paise * covered) / whole);
+  }
+  return tracked ? total : null;
+}
+
+/** Every category id budgeted in any month a range covers. */
+export function budgetedCategoryIds(budgets = {}, range) {
+  const out = new Set();
+  for (const key of monthsInRange(range)) {
+    for (const id of Object.keys(budgets?.[key] ?? {})) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * The band a progress bar is drawn in.
+ *
+ * Three states rather than a gradient, because the bar has to be readable at
+ * a glance and the exact figures are printed beside it either way. 'near' is
+ * the warning band at 85% of the money gone; 'over' is strictly more than the
+ * budget, so spending exactly the budget is not an overrun.
+ *
+ * The band is never the only signal — every row states its figures, its pace
+ * and its status in words.
+ */
+export function budgetState(spentPaise, budgetPaise) {
+  if (budgetPaise === null || budgetPaise === undefined) return 'none';
+  if (spentPaise > budgetPaise) return 'over';
+  // A budget of zero that has not been spent against is met, not "near".
+  if (budgetPaise === 0) return 'under';
+  return spentPaise / budgetPaise >= 0.85 ? 'near' : 'under';
+}
+
+/**
+ * Per-category budget report for a range, split into budgeted and not.
  *
  * Spend is expense-only: a refund filed as income in a same-named category
  * must not quietly pay down a budget, and a transfer must not consume one.
+ *
+ * The unbudgeted side is a list, not only a total. Money outside every budget
+ * is the money most worth seeing, and reporting it as one lump is how it
+ * becomes invisible.
  */
-export function budgetReportForRange(transactions = [], categories = [], range, today) {
+export function budgetReportForRange(
+  transactions = [], categories = [], budgets = {}, range, today,
+) {
   const scoped = inRange(transactions, range);
   const spentBy = new Map(expenseByCategory(scoped).map((r) => [r.categoryId, r.totalPaise]));
 
   // Budgets belong to spending. An income category has nothing to pace against.
   const budgetable = categories.filter((c) => (c.kind ?? 'expense') === 'expense');
 
-  const rows = budgetable.map((cat) => ({
-    categoryId: cat.id,
-    name: cat.name,
-    budgetPaise: cat.budgetPaise ?? null,
-    ...paceForRange({
-      budgetPaise: cat.budgetPaise ?? null,
-      spentPaise: spentBy.get(cat.id) ?? 0,
-      range,
-      today,
-    }),
-  }));
+  const rows = budgetable.map((cat) => {
+    const budgetPaise = budgetForRange(budgets, cat.id, range);
+    const spentPaise = spentBy.get(cat.id) ?? 0;
+    return {
+      categoryId: cat.id,
+      name: cat.name,
+      colorToken: cat.colorToken,
+      icon: cat.icon,
+      archived: cat.archived === true,
+      budgetPaise,
+      state: budgetState(spentPaise, budgetPaise),
+      ...paceForRange({ budgetPaise, spentPaise, range, today }),
+    };
+  });
 
-  const budgeted = rows.filter((r) => r.budgetPaise !== null);
-  const unbudgetedPaise = sumPaise(
-    rows.filter((r) => r.budgetPaise === null),
-    (r) => r.spentPaise,
-  );
+  // Closest to trouble first: the row about to go over is the one worth
+  // reading, and an alphabetical list buries it.
+  const budgeted = rows
+    .filter((r) => r.budgetPaise !== null)
+    .sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0) || compare(a.name, b.name));
+
+  // An archived category with no budget and no spend is not news. One that was
+  // spent in still is, so it stays.
+  const unbudgeted = rows
+    .filter((r) => r.budgetPaise === null && !(r.archived && r.spentPaise === 0))
+    .sort((a, b) => b.spentPaise - a.spentPaise || compare(a.name, b.name));
+
+  const unbudgetedPaise = sumPaise(unbudgeted, (r) => r.spentPaise);
   const overallBudget = budgeted.length ? sumPaise(budgeted, (r) => r.budgetPaise) : null;
+  const budgetedSpentPaise = sumPaise(budgeted, (r) => r.spentPaise);
 
   return {
     rows,
     budgeted,
+    unbudgeted,
     unbudgetedPaise,
+    budgetedSpentPaise,
     /**
      * The overall row compares budgeted spend against budgeted money — not
      * the whole period against a plan that only covers part of it, which would
      * guarantee an overrun and double-count what `unbudgetedPaise` already
      * reports. The two figures add up to the period's expense total.
      */
-    overall: paceForRange({
-      budgetPaise: overallBudget,
-      spentPaise: sumPaise(budgeted, (r) => r.spentPaise),
-      range,
-      today,
-    }),
+    overall: {
+      state: budgetState(budgetedSpentPaise, overallBudget),
+      ...paceForRange({
+        budgetPaise: overallBudget,
+        spentPaise: budgetedSpentPaise,
+        range,
+        today,
+      }),
+    },
     totalPaise: expenseTotalPaise(scoped),
   };
 }
 
 /** The month-shaped call, in terms of the range-shaped one. */
-export function budgetReport(transactions = [], categories = [], key, today) {
+export function budgetReport(transactions = [], categories = [], budgets = {}, key, today) {
   const report = budgetReportForRange(
-    transactions, categories, periodRange('monthly', `${key}-01`), today,
+    transactions, categories, budgets, periodRange('monthly', `${key}-01`), today,
   );
   return { ...report, monthTotalPaise: report.totalPaise };
 }

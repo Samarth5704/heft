@@ -285,6 +285,42 @@ export function periodsEndingAt(viewMode, anchorDate, count = 6, weekStartsOn = 
   return out;
 }
 
+/**
+ * Every 'YYYY-MM' key a range touches, in order.
+ *
+ * A budget is set per month and a period may be a day, a week or six months,
+ * so this is the join between the two. A week straddling 31 July returns both
+ * months; a yearly range returns twelve.
+ */
+export function monthsInRange(range) {
+  if (!range || !isValid(range.start) || !isValid(range.end)) return [];
+  if (compare(range.start, range.end) > 0) return [];
+  const last = monthKey(range.end);
+  const out = [];
+  for (let key = monthKey(range.start); ; key = addMonths(key, 1)) {
+    out.push(key);
+    if (key === last) break;
+  }
+  return out;
+}
+
+/**
+ * How many days of a month key fall inside an inclusive range.
+ *
+ * This is what makes a monthly budget mean something in a weekly view: the
+ * week gets the share of the month it actually covers, rather than the whole
+ * figure or nothing.
+ */
+export function daysOfMonthInRange(key, range) {
+  const p = monthKeyParts(key);
+  if (!p || !range) return 0;
+  const first = toISO(p.year, p.month, 1);
+  const last = toISO(p.year, p.month, daysInMonthOf(p.year, p.month));
+  const start = compare(first, range.start) < 0 ? range.start : first;
+  const end = compare(last, range.end) > 0 ? range.end : last;
+  return compare(start, end) > 0 ? 0 : diffDays(start, end) + 1;
+}
+
 /** Whole days in an inclusive range. */
 export function periodLength(range) {
   if (!range || !isValid(range.start) || !isValid(range.end)) return 0;

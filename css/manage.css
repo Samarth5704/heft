@@ -1,0 +1,343 @@
+/**
+ * manage.css — the Budgets, Accounts and Categories panes.
+ *
+ * Three tabs, one visual grammar: a section heading in small caps, rows that
+ * are either a single button or a card with its own controls, and figures
+ * that always carry their sign and their word.
+ *
+ * Two rules run through all of it:
+ *
+ * - **Nothing sits underneath the FAB.** Every pane here ends with
+ *   `--pane-bottom-clearance`, which is derived from the FAB's own size token
+ *   rather than guessed at. This is the flaw that mars four of the seven
+ *   reference screenshots.
+ * - **Colour is never the only signal.** A budget's state is a band on a bar
+ *   *and* a sentence; a negative balance is coral *and* carries an explicit
+ *   minus sign *and* says "overdrawn" to a screen reader.
+ */
+
+@layer components {
+
+  .pane { padding-block-end: var(--pane-bottom-clearance); }
+
+  /* ============================================================= shared */
+
+  .manage-head { display: grid; gap: var(--space-2); padding-block: var(--space-4) var(--space-3); }
+
+  .section-title {
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .section-note {
+    font-size: var(--fs-xs);
+    color: var(--ink-2);
+    max-inline-size: 54ch;
+    line-height: var(--lh-body);
+  }
+
+  .manage-section { display: grid; gap: var(--space-3); padding-block-start: var(--space-5); }
+
+  .manage-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .manage-section-title {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .manage-section-empty {
+    font-size: var(--fs-sm);
+    color: var(--ink-2);
+    max-inline-size: 52ch;
+    line-height: var(--lh-body);
+  }
+
+  .manage-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-2); }
+
+  /* ============================================================ budgets */
+
+  /* The overall row leads and gets the weight, because it answers the
+     question the tab exists for before any category does. */
+  .overall {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-raise);
+  }
+
+  .overall-figures { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+
+  .overall-spent {
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    line-height: var(--lh-tight);
+    color: var(--ink);
+  }
+  .overall-of { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-3); }
+
+  .overall-status { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+
+  .budget-list { display: grid; gap: var(--space-1); }
+  .budget-list-loose { gap: 0; }
+
+  .budget-row { border-radius: var(--r-md); }
+
+  /* The whole row is one button: a row that opens one sheet is one action,
+     and its accessible name carries the figures so it is never a repeated
+     bare "Set budget". */
+  .budget-open {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    inline-size: 100%;
+    padding: var(--space-3) var(--space-2);
+    text-align: start;
+    border-radius: var(--r-md);
+    transition: background var(--dur-2) var(--ease-out);
+  }
+  .budget-open:hover { background: var(--accent-wash); }
+
+  .budget-chip { --chip-size: 2.25rem; flex: none; }
+
+  .budget-main { flex: 1; min-inline-size: 0; display: grid; gap: 0.4rem; }
+
+  .budget-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .budget-name {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .budget-figures { flex: none; display: inline-flex; align-items: baseline; gap: 0.35rem; }
+  .budget-spent { font-size: var(--fs-sm); font-weight: 700; color: var(--ink); }
+  .budget-of { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+
+  /* The bar is decoration. Every number it encodes is written beside it. */
+  .budget-track {
+    position: relative;
+    display: block;
+    block-size: 0.5rem;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-pill);
+    overflow: visible;
+  }
+
+  .budget-fill {
+    display: block;
+    block-size: 100%;
+    inline-size: var(--fill, 0%);
+    max-inline-size: 100%;
+    background: var(--band-colour, var(--ink-3));
+    border-radius: var(--r-pill);
+    transition: inline-size var(--dur-3) var(--ease-out);
+  }
+
+  /* Three bands. Each is paired with a sentence in .budget-status, so the
+     hue is the second signal and never the first. */
+  [data-state="under"] { --band-colour: var(--money-in); }
+  [data-state="near"]  { --band-colour: var(--accent-text); }
+  [data-state="over"]  { --band-colour: var(--money-out); }
+
+  /* Where the plan says you should be today. */
+  .budget-pace {
+    position: absolute;
+    inset-block: -3px;
+    inset-inline-start: var(--at, 0%);
+    inline-size: 2px;
+    background: var(--ink);
+    opacity: 0.5;
+    border-radius: var(--r-pill);
+    translate: -1px 0;
+  }
+
+  .budget-status { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+  [data-state="over"] .budget-status { color: var(--money-out); }
+
+  .budget-projection { font-size: var(--fs-2xs); color: var(--ink-3); }
+
+  /* The unbudgeted rows are quieter: they carry one figure and one action. */
+  .budget-row-unset .budget-open { padding-block: var(--space-2); }
+  .budget-row-unset + .budget-row-unset { border-block-start: 1px solid var(--rule); }
+  .budget-row-unset .budget-name { font-weight: 600; color: var(--ink-2); }
+  .budget-row-unset .budget-spent { font-weight: 600; color: var(--ink-2); }
+
+  .budget-set {
+    flex: none;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .unbudgeted-total { display: grid; gap: var(--space-1); }
+  .unbudgeted-figure {
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--money-out);
+    line-height: var(--lh-tight);
+  }
+  .unbudgeted-note { font-size: var(--fs-xs); color: var(--ink-2); max-inline-size: 50ch; }
+
+  /* =========================================================== accounts */
+
+  .networth {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-5) var(--space-4);
+    margin-block-start: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-raise);
+    text-align: center;
+  }
+
+  .networth-label {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .networth-figure {
+    font-size: var(--fs-2xl);
+    font-weight: 700;
+    line-height: var(--lh-tight);
+    color: var(--ink);
+  }
+  .networth-figure[data-tone="out"] { color: var(--money-out); }
+
+  .networth-lifetime {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--rule);
+  }
+  .networth-lifetime dt {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .networth-lifetime dd { font-size: var(--fs-sm); font-weight: 700; margin-block-start: 0.15rem; }
+  .networth-lifetime div:first-child dd { color: var(--money-out); }
+  .networth-lifetime div:last-child dd { color: var(--money-in); }
+
+  .account-list { display: grid; gap: var(--space-3); }
+
+  .account-card {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-raise);
+  }
+  .account-card[data-archived="true"] { opacity: 0.72; box-shadow: none; }
+
+  .account-top { display: flex; align-items: center; gap: var(--space-3); }
+
+  .account-chip { --chip-size: 2.5rem; flex: none; }
+
+  .account-id { flex: 1; min-inline-size: 0; display: grid; gap: 0.1rem; }
+
+  .account-name {
+    font-size: var(--fs-base);
+    font-weight: 700;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-type {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .account-balance {
+    flex: none;
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--ink);
+    text-align: end;
+  }
+  /* Coral, and an explicit minus sign, and "overdrawn" in the accessible
+     name. Three signals, because one of them is a colour. */
+  .account-balance[data-tone="out"] { color: var(--money-out); }
+
+  .account-opening { font-size: var(--fs-2xs); color: var(--ink-3); }
+
+  .account-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-block-start: var(--space-1);
+    border-block-start: 1px solid var(--rule);
+    padding-block: var(--space-3) 0;
+  }
+
+  /* ========================================================= categories */
+
+  .category-list { display: grid; }
+
+  .category-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+  }
+  .category-row + .category-row { border-block-start: 1px solid var(--rule); }
+  .category-row[data-archived="true"] .category-name { color: var(--ink-3); }
+
+  .category-chip { --chip-size: 2.25rem; flex: none; }
+
+  .category-main { flex: 1; min-inline-size: 0; display: grid; gap: 0.1rem; }
+
+  .category-name {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .category-count { font-size: var(--fs-2xs); color: var(--ink-3); }
+
+  .category-menu-open { flex: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .budget-open { transition: none; }
+    .budget-fill { transition: none; }
+  }
+}

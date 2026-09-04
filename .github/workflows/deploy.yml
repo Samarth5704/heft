@@ -1,0 +1,114 @@
+# Deploy Heft to GitHub Pages.
+#
+# Heft has no build step and no dependencies, so there is nothing to compile,
+# bundle or install for the site itself — the files in the repository are the
+# site. Node appears in exactly one job, and only to run the repo's own dev
+# tooling; it never produces anything that ships.
+#
+# What it does NOT do is upload the repository root. Pages serves what it is
+# given at a public URL, so "publish everything that happens to be in the repo"
+# is a decision nobody made, renewed on every commit. `.github/assemble-site.sh`
+# holds an explicit allowlist instead, and fails the build when a new top-level
+# file is neither published nor deliberately withheld. The hazard, and the
+# near-miss that prompted it, are written up in that file.
+#
+# Two jobs, in order:
+#
+#   checks   proves the palette against the shipped css/tokens.css and fails on
+#            any text pair under 4.5:1, then proves that every file in the root
+#            has been classified. Runs on pull requests, so both gate a merge.
+#   deploy   assembles the allowlisted files and publishes them. Gated on
+#            `checks`.
+#
+# Adopting this requires Pages to be set to "GitHub Actions" in the repository
+# settings (Settings → Pages → Build and deployment → Source). It is currently
+# on the legacy "Deploy from a branch" path, which runs a Jekyll build over the
+# repo — which is why `.nojekyll` exists at the root. Once the source is
+# switched, Jekyll never runs and `.nojekyll` becomes inert but harmless; it is
+# kept so that rolling back to the branch path still works.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # So the contrast gate runs before a merge rather than after it. Nothing is
+  # deployed from a pull request.
+  pull_request:
+  workflow_dispatch:
+
+# The deploy job needs to mint an id-token for Pages; everything else is read.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. `cancel-in-progress: false` because cancelling a
+# half-finished Pages deploy is how a site ends up serving a partial upload.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    name: Contrast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The only Node in this workflow, and it touches nothing that ships.
+      # Pinned to 22 rather than `lts/*` because the script is run with
+      # --experimental-default-type=module: the repo has no package.json (by
+      # design — no npm), so the flag is what tells Node these .js files are
+      # modules. A floating major could drop or rename an experimental flag
+      # and break the gate for a reason that has nothing to do with the code.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Exits non-zero on any failing pair, so this line is the gate. It reads
+      # the real css/tokens.css rather than a copy, so there is no second
+      # source of truth for it to pass while the site fails.
+      #
+      # Text pairs are held to 4.5:1 (WCAG AA). The disc-on-ground and
+      # focus-ring pairs in the same script are held to 3:1, which is the
+      # correct standard for a non-text boundary — raising those to 4.5 would
+      # not be stricter, it would be wrong.
+      - name: Check the palette against css/tokens.css
+        run: node --experimental-default-type=module scripts/check-contrast.mjs
+
+      # The same script the deploy job builds the artifact with, run here for
+      # its checks alone. On a pull request this is the step that stops a new
+      # root-level file from being published by default — it fails until the
+      # file is named as published or withheld, so the decision is made by a
+      # person rather than by whatever the glob happened to match.
+      - name: Check every root-level file is classified
+        run: bash .github/assemble-site.sh
+
+  deploy:
+    name: Deploy
+    # Never from a pull request, and never over a failing palette.
+    if: github.event_name != 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # Copies the allowlisted paths into _site/ and prints the full manifest
+      # into the job log, so what went public is answerable after the fact
+      # rather than inferred. Still no install and no build: the files are
+      # copied exactly as they sit in the tree.
+      - name: Assemble the site
+        run: bash .github/assemble-site.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

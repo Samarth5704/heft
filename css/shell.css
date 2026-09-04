@@ -1,0 +1,610 @@
+/**
+ * shell.css — header, period bar, panes, tab bar, FAB, drawer, sheets.
+ *
+ * Nothing in here names a colour. Every value is a token, which is what makes
+ * the theme switch a one-attribute change on <html> with no component CSS
+ * touched.
+ *
+ * The load-bearing rule of this file is the bottom clearance. The reference
+ * screenshots have the FAB sitting on top of an amount, a percentage and a
+ * SET BUDGET button, because their padding was guessed. Here every scroll
+ * container ends with `--pane-bottom-clearance`, which is derived in
+ * tokens.css from the FAB's own size and offset plus the tab bar's height and
+ * the device's safe area. Change the FAB and the clearance follows.
+ */
+
+@layer shell {
+
+  /* ------------------------------------------------------------- base */
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: var(--fs-base);
+    font-weight: 500;
+    line-height: var(--lh-body);
+    /* Every number in the app is tabular, without exception. Setting it on
+       the body means a component cannot forget. */
+    font-variant-numeric: tabular-nums;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    inline-size: 1px; block-size: 1px;
+    margin: -1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
+    border-radius: var(--r-sm);
+  }
+
+  .skip-link {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
+    inset-inline-start: var(--space-4);
+    inset-block-start: -5rem;
+    z-index: 300;
+    background: var(--accent);
+    color: var(--accent-ink);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--r-sm);
+    font-weight: 600;
+    text-decoration: none;
+    transition: inset-block-start var(--dur-2) var(--ease-out);
+  }
+  .skip-link:focus-visible { inset-block-start: var(--space-3); }
+
+  .icon { inline-size: 1.5rem; block-size: 1.5rem; flex: none; display: block; }
+
+  .app {
+    max-inline-size: var(--page-max);
+    margin-inline: auto;
+    min-block-size: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+
+  /* ----------------------------------------------------- buttons */
+
+  /* 44px of height, always. Padding alone put every button at 39 — close
+     enough to look right and small enough to fail the target-size floor, and
+     the kind of thing that is invisible until it is measured. The minimum is
+     on `.btn` itself so no variant can miss it, `.btn-small` included: small
+     describes its type and padding, never its target. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-block-size: 2.75rem;
+    font-family: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+  }
+  .btn-quiet { border-color: var(--rule-strong); }
+  .btn-quiet:hover { background: var(--accent-wash); color: var(--ink); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent-edge);
+    color: var(--accent-ink);
+  }
+
+  .icon-btn {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 2.75rem;    /* a 44px target, not a 24px glyph */
+    block-size: 2.75rem;
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  }
+  .icon-btn:hover { background: var(--accent-wash); color: var(--ink); }
+
+  /* ------------------------------------------------------ top header */
+
+  .app-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 40;
+    background: var(--band);
+    padding-block-start: env(safe-area-inset-top, 0px);
+  }
+
+  .app-header-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+  }
+
+  /* The script face, one word, one weight, and nowhere else in the app. */
+  .wordmark {
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-script);
+    font-weight: 400;
+    font-size: var(--fs-xl);
+    line-height: 1.4;          /* the descender of the "f" needs the room */
+    color: var(--accent-text);
+    letter-spacing: 0.01em;
+    user-select: none;
+  }
+
+  .search-field {
+    display: flex;
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-3);
+  }
+  .search-field input {
+    flex: 1;
+    min-inline-size: 0;
+    font: inherit;
+    font-size: var(--fs-sm);
+    padding: 0.5rem 0.75rem;
+    color: var(--ink);
+    background: var(--sunken);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+  }
+  .search-field input::placeholder { color: var(--ink-3); }
+
+  /* ------------------------------------------------------ period bar */
+
+  .period-bar {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 30;
+    background: var(--bg);
+    border-block-end: 1px solid var(--rule);
+    padding: var(--space-2) var(--space-2) var(--space-3);
+  }
+
+  .period-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .period-label {
+    flex: 1;
+    text-align: center;
+    font-size: var(--fs-md);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Three equal columns. `grid` rather than `flex` so the middle column holds
+     its place when income is ₹0.00 and the layout does not shuffle. */
+  .triad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    margin: var(--space-2) 0 0;
+    padding-inline: var(--space-2);
+  }
+
+  .triad-cell { text-align: center; min-inline-size: 0; }
+
+  .triad-cell dt {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .triad-cell dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    line-height: var(--lh-tight);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The sign is inside the string, so colour is reinforcement and never the
+     signal. `.sr-tone` carries the word for anyone not seeing either. */
+  .triad-cell[data-figure="expense"] dd { color: var(--money-out); }
+  .triad-cell[data-figure="income"] dd { color: var(--money-in); }
+  .triad-cell[data-figure="net"] dd { color: var(--ink); }
+  .triad-cell[data-figure="net"][data-tone="out"] dd { color: var(--money-out); }
+  .triad-cell[data-figure="net"][data-tone="in"] dd { color: var(--money-in); }
+
+  /* The currency symbol sits at a smaller optical size than the digits. */
+  .money-sym { font-size: 0.78em; font-weight: 600; opacity: 0.85; }
+
+  /* ----------------------------------------------------------- panes */
+
+  .pane-region {
+    flex: 1;
+    /* The clearance. Derived, never guessed — see the file header. */
+    padding-block-end: var(--pane-bottom-clearance);
+  }
+  .pane-region:focus { outline: none; }
+
+  /* Every pane is a query container, at every screen size.
+     Components inside one size themselves against *this* box rather than
+     against the window, which is what lets a ledger row work unchanged in a
+     full-width phone pane and in the narrow companion column beside it on a
+     laptop. Without it the row would need a second set of rules keyed to a
+     viewport width that says nothing about how much room the row has. */
+  .pane {
+    padding-inline: var(--gutter);
+    container-type: inline-size;
+    container-name: pane;
+  }
+
+  .pane-placeholder {
+    margin-block-start: var(--space-8);
+    text-align: center;
+    color: var(--ink-3);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+  }
+  /* A placeholder should look unfinished on purpose, not like an empty state
+     that has given up. */
+  .pane-placeholder::after {
+    content: "";
+    display: block;
+    inline-size: 3rem;
+    block-size: 2px;
+    margin: var(--space-4) auto 0;
+    background: var(--rule-strong);
+  }
+
+  /* ------------------------------------------------------------- fab */
+
+  .fab {
+    position: fixed;
+    /* Anchored above the tab bar, never over it. */
+    inset-block-end: calc(var(--tabbar-height) + var(--safe-bottom) + var(--fab-offset));
+    inline-size: var(--fab-size);
+    block-size: var(--fab-size);
+    /* Kept inside the app's measure on wide viewports rather than flying off
+       to the window's corner. */
+    inset-inline-start: min(100%, calc(50% + var(--page-max) / 2));
+    translate: calc(-100% - var(--fab-offset)) 0;
+    z-index: 45;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--accent-edge);
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: var(--shadow-pop);
+    cursor: pointer;
+    transition: translate var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+  }
+  .fab .icon { inline-size: 1.75rem; block-size: 1.75rem; }
+  .fab:hover { background: color-mix(in oklab, var(--accent) 88%, var(--ink)); }
+
+  /* The button carries its label in the markup at every size. Here it is the
+     glyph that speaks and the label is redundant with the aria-label, so it
+     is not drawn; from 45rem up the button sits in the header with room for
+     the word and wide.css turns it back on. Kept in the DOM either way so
+     the two layouts are one button, not two. */
+  .fab-label { display: none; }
+
+  /* --------------------------------------------------------- tab bar */
+
+  .tabbar {
+    position: fixed;
+    inset-block-end: 0;
+    inset-inline: 0;
+    z-index: 50;
+    margin-inline: auto;
+    max-inline-size: var(--page-max);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    background: var(--band);
+    border-block-start: 1px solid var(--rule-strong);
+    /* Clears a phone's home indicator. */
+    padding-block-end: var(--safe-bottom);
+    block-size: calc(var(--tabbar-height) + var(--safe-bottom));
+    /* The knockout colour for a filled tab glyph is this bar's own ground. */
+    --icon-knockout: var(--band);
+  }
+
+  .tab {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 0.15rem;
+    text-decoration: none;
+    color: var(--ink-3);
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    padding-block: var(--space-1);
+    transition: color var(--dur-2) var(--ease-out);
+  }
+  .tab:hover { color: var(--ink-2); }
+
+  /* Accent AND a filled glyph. Two signals, so the active tab is not lost to
+     anyone who cannot separate the hue from its neighbours. */
+  .tab[aria-current="page"] { color: var(--accent-text); font-weight: 700; }
+
+  /* --------------------------------------------------------- drawer */
+
+  .drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: var(--scrim);
+    animation: fade-in var(--dur-2) var(--ease-out);
+  }
+
+  .drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 70;
+    inline-size: min(19rem, 82vw);
+    background: var(--surface);
+    border-inline-end: 1px solid var(--rule-strong);
+    box-shadow: var(--shadow-dialog);
+    display: flex;
+    flex-direction: column;
+    padding-block: env(safe-area-inset-top, 0px) var(--safe-bottom);
+    translate: -100% 0;
+    visibility: hidden;
+    /* `visibility` is a discrete property: put it in a normal transition and
+       it flips at the halfway point, leaving the panel unfocusable for the
+       first half of the slide — which silently breaks moving focus to the
+       close button on open. So it is switched at 0s instead, delayed to the
+       end of the transition when closing and immediate when opening. */
+    transition: translate var(--dur-3) var(--ease-out),
+                visibility 0s linear var(--dur-3);
+  }
+  .drawer[data-open="true"] {
+    translate: 0 0;
+    visibility: visible;
+    transition: translate var(--dur-3) var(--ease-out), visibility 0s;
+  }
+
+  .drawer-head {
+    position: relative;
+    padding: var(--space-5) var(--space-5) var(--space-4);
+    border-block-end: 1px solid var(--rule);
+  }
+  .drawer-title {
+    font-family: var(--font-script);
+    font-size: var(--fs-lg);
+    line-height: 1.4;
+    color: var(--accent-text);
+  }
+  .drawer-sub { font-size: var(--fs-xs); color: var(--ink-3); }
+  .drawer-close { position: absolute; inset-block-start: var(--space-3); inset-inline-end: var(--space-2); }
+
+  .drawer-nav { padding-block: var(--space-3); overflow-y: auto; }
+
+  .drawer-group {
+    padding: var(--space-4) var(--space-5) var(--space-1);
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .drawer-item {
+    inline-size: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-5);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink);
+    text-align: start;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+  .drawer-item:hover { background: var(--accent-wash); }
+
+  .drawer-note {
+    margin-block-start: auto;
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--fs-xs);
+    color: var(--ink-3);
+    min-block-size: 3rem;
+  }
+
+  /* -------------------------------------------------------- sheets */
+
+  .sheet {
+    border: none;
+    padding: 0;
+    background: var(--surface);
+    color: var(--ink);
+    inline-size: min(26rem, calc(100vw - 2rem));
+    max-block-size: calc(100dvh - 4rem);
+    /* A modal <dialog> centres itself with `margin: auto`, which the reset's
+       blanket `* { margin: 0 }` had taken away — the sheet was pinning itself
+       to the top-left corner. Restored explicitly rather than by loosening
+       the reset. */
+    margin: auto;
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-dialog);
+    overflow: auto;
+  }
+  .sheet::backdrop { background: var(--scrim); }
+
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-2) var(--space-5);
+    border-block-end: 1px solid var(--rule);
+  }
+  .sheet-head h2 { flex: 1; font-size: var(--fs-md); font-weight: 700; }
+
+  .sheet-body { padding: var(--space-4) var(--space-5); display: grid; gap: var(--space-5); }
+
+  .sheet-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: var(--space-3) var(--space-5) var(--space-5);
+  }
+
+  .opt { border: none; padding: 0; margin: 0; }
+
+  .opt-label {
+    padding: 0;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .opt-choices {
+    display: flex;
+    gap: var(--space-2);
+    margin-block-start: var(--space-2);
+    padding: 3px;
+    background: var(--sunken);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+  }
+  .opt-choices-stack { flex-wrap: wrap; }
+
+  .opt-choice {
+    flex: 1 1 auto;
+    /* A radio in a segmented control is a target like any other. These were
+       34px: comfortably clickable with a mouse, under the floor with a
+       thumb. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-block-size: 2.75rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: calc(var(--r-sm) - 1px);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink-3);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  }
+  .opt-choice:hover { color: var(--ink); }
+
+  /* The checked option is raised and set in full ink, then marked with a
+     tick — never distinguished by its background tint alone. */
+  .opt-choice[aria-checked="true"] {
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-raise);
+  }
+  .opt-choice[aria-checked="true"]::before {
+    content: "✓";
+    margin-inline-end: 0.35rem;
+    color: var(--accent-text);
+    font-weight: 700;
+  }
+
+  .opt-help {
+    margin-block-start: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--ink-3);
+    line-height: 1.45;
+  }
+
+  /* ------------------------------------------------------- category chip */
+
+  .cat-chip {
+    inline-size: var(--chip-size, 40px);
+    block-size: var(--chip-size, 40px);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    flex: none;
+    background: var(--chip-color, var(--ink-3));
+    color: var(--cat-glyph);
+  }
+  .cat-chip .icon {
+    inline-size: calc(var(--chip-size, 40px) * 0.58);
+    block-size: calc(var(--chip-size, 40px) * 0.58);
+  }
+
+  /* ====================================================== storage alert --
+     Not a toast. A toast that vanishes is the wrong shape for "your data was
+     not saved": the fact stays true after the animation ends, so the banner
+     stays until it is dismissed or until a save succeeds. It sits in the
+     flow, above the panes, and pushes them down rather than covering them. */
+
+  .alert {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-3) var(--gutter) 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--danger-wash);
+    border: 1px solid var(--danger-edge);
+    border-radius: var(--r-md);
+  }
+
+  .alert-body { flex: 1 1 16rem; min-inline-size: 0; }
+
+  /* The warning glyph is decoration on top of a sentence that already says
+     what happened; it is not carrying the meaning on its own. */
+  .alert-title {
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--danger-ink);
+  }
+  .alert-title::before { content: "\26A0\FE0E  "; }
+
+  /* Body copy on the wash, not on the page ground it is sitting over — the
+     pair is checked as `ink-2 on danger-wash` in check-contrast.mjs. */
+  .alert-text {
+    margin-block-start: var(--space-1);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+
+  .alert-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  /* ------------------------------------------------------------ motion */
+
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Cross-fade the panes on a tab change and the period bar on a step. Both
+     are opt-in via a class the script only sets when the API exists. */
+  ::view-transition-old(pane), ::view-transition-new(pane) {
+    animation-duration: var(--dur-3);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .fab, .tab, .btn, .icon-btn, .opt-choice { transition: none; }
+    .drawer-scrim { animation: none; }
+    ::view-transition-old(pane), ::view-transition-new(pane) { animation: none; }
+  }
+}

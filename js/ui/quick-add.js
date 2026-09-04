@@ -11,8 +11,9 @@
  */
 
 import { parseQuickAdd } from '../lib/parse.js';
-import { formatAmount } from '../lib/money.js';
+import { signedMoney } from '../lib/format.js';
 import { formatRelativeDay } from '../lib/dates.js';
+import { icon } from './icon.js';
 
 const SPEAK_DELAY_MS = 600;
 const NOTICE_MS = 12000;
@@ -21,7 +22,10 @@ const MATCH_NOTE = {
   name: '',
   synonym: 'matched by name in the note',
   default: 'default category',
+  none: '',
 };
+
+const KIND_LABEL = { expense: 'Expense', income: 'Income', transfer: 'Transfer' };
 
 export function createQuickAdd({
   form, input, preview, hint, live, getContext, onSubmit, onOpenDetails,
@@ -56,6 +60,7 @@ export function createQuickAdd({
   function renderPreview(result, ctx) {
     preview.replaceChildren();
     preview.dataset.state = result.error ?? 'ok';
+    preview.dataset.kind = result.kind;
 
     if (result.error === 'empty') return;
 
@@ -67,26 +72,43 @@ export function createQuickAdd({
       return;
     }
 
+    /* The kind leads the preview because it is what the rest of the line
+       means: the same words parse differently under it. */
+    const kindTag = document.createElement('span');
+    kindTag.className = 'qa-kind';
+    kindTag.dataset.kind = result.kind;
+    kindTag.append(icon(result.kind === 'transfer' ? 'transfer' : 'plus'), KIND_LABEL[result.kind]);
+    preview.append(facet('Type', kindTag));
+
+    const signed = signedMoney(result.amountPaise, result.kind, ctx.display);
     const amount = document.createElement('span');
     amount.className = 'qa-amount';
-    const sym = document.createElement('span');
-    sym.className = 'sym';
-    sym.setAttribute('aria-hidden', 'true');
-    sym.textContent = '₹';
-    amount.append(sym, formatAmount(result.amountPaise));
+    amount.dataset.tone = signed.tone;
+    amount.textContent = signed.text;
     preview.append(facet('Amount', amount));
 
     preview.append(facet('Date', formatRelativeDay(result.date, ctx.today)));
 
-    const category = ctx.categories.find((c) => c.id === result.categoryId);
-    const catWrap = document.createElement('span');
-    catWrap.className = 'qa-cat';
-    const dot = document.createElement('span');
-    dot.className = 'cat-dot';
-    dot.setAttribute('aria-hidden', 'true');
-    dot.style.setProperty('--cat', `var(--${category?.colorToken ?? 'cat-neutral'})`);
-    catWrap.append(dot, category?.name ?? 'Other');
-    preview.append(facet('Category', catWrap, MATCH_NOTE[result.matchedBy]));
+    if (result.kind === 'transfer') {
+      const accounts = ctx.accounts ?? [];
+      const name = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown';
+      // A transfer has no category. Where it went is the destination account,
+      // and that is what fills the slot a category would have.
+      preview.append(facet('Moves', `${name(result.accountId)} \u2192 ${name(result.toAccountId)}`));
+    } else {
+      const category = ctx.categories.find((c) => c.id === result.categoryId);
+      const catWrap = document.createElement('span');
+      catWrap.className = 'qa-cat';
+      const dot = document.createElement('span');
+      dot.className = 'cat-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      dot.style.setProperty('--cat', `var(--${category?.colorToken ?? 'cat-neutral'})`);
+      catWrap.append(dot, category?.name ?? 'Other');
+      preview.append(facet('Category', catWrap, MATCH_NOTE[result.matchedBy]));
+
+      const account = (ctx.accounts ?? []).find((a) => a.id === result.accountId);
+      if (account) preview.append(facet('Account', account.name));
+    }
 
     if (result.note) preview.append(facet('Note', result.note));
 
@@ -104,11 +126,21 @@ export function createQuickAdd({
       if (!live) return;
       if (result.error === 'empty') { live.textContent = ''; return; }
       if (result.error) { live.textContent = result.message; return; }
-      const category = ctx.categories.find((c) => c.id === result.categoryId);
+
+      const signed = signedMoney(result.amountPaise, result.kind, ctx.display);
+      const accounts = ctx.accounts ?? [];
+      const name = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown';
+      const subject = result.kind === 'transfer'
+        ? `${name(result.accountId)} to ${name(result.toAccountId)}`
+        : ctx.categories.find((c) => c.id === result.categoryId)?.name ?? 'Other';
+
+      // The kind is spoken, not merely coloured, and the amount carries its
+      // word rather than its sign — "minus" is not what a person means.
       live.textContent = [
-        `₹${formatAmount(result.amountPaise)}`,
+        KIND_LABEL[result.kind],
+        signed.text.replace(/^[+\u2212]/, ''),
+        subject,
         formatRelativeDay(result.date, ctx.today),
-        category?.name ?? 'Other',
         result.note,
       ].filter(Boolean).join(', ');
     }, SPEAK_DELAY_MS);
@@ -161,12 +193,7 @@ export function createQuickAdd({
       input.focus();
       return;
     }
-    onSubmit({
-      amountPaise: result.amountPaise,
-      date: result.date,
-      categoryId: result.categoryId,
-      note: result.note,
-    });
+    onSubmit(result);
     input.value = '';
     reparse();
     input.focus();

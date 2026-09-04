@@ -1,0 +1,576 @@
+/**
+ * records.css — the Records tab: chips, quick-add, the ledger, the three
+ * empty states, the undo bar and the detail sheet.
+ *
+ * The weight rule holds here as it does everywhere. JavaScript sets one
+ * number per row, `--t` in [0,1], and nothing else about a row's appearance.
+ * Everything below that consumes it — the spine's width and opacity, the
+ * amount's font weight, and in Heft view the row's padding and the amount's
+ * size — is interpolated from that single number with calc().
+ *
+ * Two rows of defence against the reference's worst habit: the ledger's last
+ * day gets clearance below it, and the undo bar sits above the FAB rather
+ * than under it. Nothing in this file may sit beneath the floating furniture.
+ */
+
+@layer records {
+
+  /* ============================================================== chips */
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding-block: var(--space-3) 0;
+  }
+
+  .chip-list {
+    display: contents;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0.25rem 0.5rem 0.25rem 0.6rem;
+    font-family: inherit;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-pill);
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+  .chip:hover { background: var(--accent-wash); color: var(--ink); }
+  .chip .icon { inline-size: 0.875rem; block-size: 0.875rem; opacity: 0.7; }
+
+  .chip-dot {
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    border-radius: 50%;
+    background: var(--chip-color, var(--ink-3));
+  }
+
+  .chip-clear {
+    margin-inline-start: auto;
+    border-style: dashed;
+  }
+
+  /* ========================================================== quick add */
+
+  .quick-add { padding-block: var(--space-3); }
+
+  .qa-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-md);
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+    transition: border-color var(--dur-2) var(--ease-out);
+  }
+  /* The whole line lights up, not the bare input inside it — the input's own
+     outline is suppressed below, so this IS the focus indicator and it has to
+     carry the job alone.
+     
+     `--focus-color`, not `--accent-edge`. The edge token is `transparent` in
+     dark theme by design: the FAB's fill already clears 3:1 against the page
+     there, so it needs no ring. Borrowing it here meant the border vanished
+     in dark and the only thing left marking focus was a 14% wash — about
+     1.3:1 against the ground, well under what a focus indicator owes. The
+     focus token is the accent itself in dark and the dark edge in light, so
+     the line is unmistakably lit in both. */
+  .qa-line:focus-within {
+    border-color: var(--focus-color);
+    box-shadow: 0 0 0 3px var(--accent-wash);
+  }
+
+  .qa-prompt {
+    color: var(--ink-3);
+    font-size: var(--fs-md);
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .qa-line input {
+    flex: 1;
+    min-inline-size: 0;
+    /* The field is a target as much as the button beside it. */
+    min-block-size: 2.75rem;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--ink);
+    padding-block: var(--space-2);
+  }
+  .qa-line input:focus { outline: none; }
+  .qa-line input::placeholder { color: var(--ink-3); font-weight: 500; }
+
+  /* The parse, shown back before it is committed. */
+  .qa-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    padding-block-start: var(--space-2);
+    padding-inline: var(--space-2);
+    font-size: var(--fs-xs);
+  }
+  .qa-preview[data-state="empty"] { display: none; }
+
+  .qa-facet { display: inline-flex; align-items: baseline; gap: var(--space-1); }
+
+  .qa-key {
+    color: var(--ink-3);
+    font-weight: 700;
+    font-size: var(--fs-2xs);
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+  }
+  .qa-val { color: var(--ink); font-weight: 600; }
+  .qa-aside { color: var(--ink-3); font-style: italic; }
+
+  .qa-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .qa-kind .icon { inline-size: 0.875rem; block-size: 0.875rem; }
+
+  .qa-amount[data-tone="out"] { color: var(--money-out); }
+  .qa-amount[data-tone="in"] { color: var(--money-in); }
+  .qa-amount[data-tone="neutral"] { color: var(--transfer-ink); }
+
+  .qa-cat { display: inline-flex; align-items: center; gap: var(--space-1); }
+  .cat-dot {
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    border-radius: 50%;
+    background: var(--cat, var(--ink-3));
+  }
+
+  .qa-message { margin: var(--space-2) 0 0; color: var(--ink-2); font-size: var(--fs-xs); }
+  .qa-message-warn { color: var(--accent-text); }
+
+  .qa-notice {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--ink-2);
+  }
+
+  .link-button {
+    font: inherit;
+    font-weight: 700;
+    color: var(--accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  /* ============================================================= ledger */
+
+  .ledger { margin-block-start: var(--space-2); }
+
+  .day + .day { margin-block-start: var(--space-4); }
+
+  .day-head {
+    position: sticky;
+    /* Below the period bar, which is the only thing above it. */
+    inset-block-start: 0;
+    z-index: 5;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-block: var(--space-2);
+    margin: 0;
+    background: var(--bg);
+    border-block-end: 1px solid var(--rule);
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .day-when { display: inline-flex; align-items: baseline; gap: var(--space-2); }
+  .day-relative { color: var(--ink-2); }
+  .day[data-today="true"] .day-relative { color: var(--accent-text); }
+  .day-date { font-weight: 600; opacity: 0.8; }
+
+  /* The day's net. Tone is the second signal; the sign inside the string is
+     the first, and the hidden word is the third. */
+  .day-net { letter-spacing: 0; font-size: var(--fs-xs); color: var(--ink-2); }
+  .day-net[data-tone="out"] { color: var(--money-out); }
+  .day-net[data-tone="in"] { color: var(--money-in); }
+  .day-net[data-tone="flat"] { color: var(--ink-3); }
+
+  /* ------------------------------------------------------------- rows */
+
+  .row {
+    position: relative;
+    border-block-end: 1px solid var(--rule);
+  }
+  .row:last-child { border-block-end: 0; }
+
+  /* The spine: the weight signal that is always on, at every setting. Its
+     width and its opacity both interpolate from --t. */
+  .row::before {
+    content: "";
+    position: absolute;
+    inset-block: 0.4rem;
+    inset-inline-start: 0;
+    inline-size: var(--w-spine-w);
+    border-radius: var(--r-pill);
+    background: var(--spine-color, var(--ink-3));
+    opacity: var(--w-spine-o);
+  }
+  .row[data-kind="expense"] { --spine-color: var(--money-out); }
+  .row[data-kind="income"] { --spine-color: var(--money-in); }
+  .row[data-kind="transfer"] { --spine-color: var(--transfer-ink); }
+
+  .row-open {
+    inline-size: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-1) var(--space-3) var(--space-3);
+    font: inherit;
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+  .row-open:hover { background: var(--accent-wash); }
+
+  .row-chip { --chip-size: 2.25rem; }
+
+  .row-body { min-inline-size: 0; display: grid; gap: 0.1rem; }
+
+  .row-title {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row-sub {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 0;
+    font-size: var(--fs-xs);
+    color: var(--ink-2);
+  }
+
+  .row-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex: none;
+    font-weight: 600;
+  }
+  .row-account .icon { inline-size: 0.875rem; block-size: 0.875rem; opacity: 0.75; }
+
+  /* The note truncates to one line here; the detail sheet is where the whole
+     of it is readable. */
+  .row-note {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-3);
+    font-style: italic;
+  }
+
+  .row-amount {
+    font-size: var(--fs-sm);
+    /* The other always-on weight signal. */
+    font-weight: var(--w-weight);
+    white-space: nowrap;
+  }
+  .row-amount[data-tone="out"] { color: var(--money-out); }
+  .row-amount[data-tone="in"] { color: var(--money-in); }
+  /* A transfer is neither, and is never coral or mint. */
+  .row-amount[data-tone="neutral"] { color: var(--transfer-ink); }
+
+  /* ------------------------------------------------------- heft view --
+     Opt-in from Preferences. Row height and amount size reopen, both
+     interpolated from the same --t. The amount floor is ~13px: the scale may
+     never make a row unreadable. */
+
+  :root[data-heft="true"] .row-open {
+    padding-block: var(--w-row-pad);
+  }
+  :root[data-heft="true"] .row {
+    --w-row-pad: calc(
+      var(--w-row-pad-min) + (var(--w-row-pad-max) - var(--w-row-pad-min)) * var(--t)
+    );
+  }
+  :root[data-heft="true"] .row-amount {
+    font-size: calc(
+      var(--w-amount-min) + (var(--w-amount-max) - var(--w-amount-min)) * var(--t)
+    );
+  }
+
+  /* -------------------------------------------------------- row motion */
+
+  @keyframes row-in {
+    from { opacity: 0; translate: 0 -0.4rem; }
+    to { opacity: 1; translate: 0 0; }
+  }
+  @keyframes row-out {
+    from { opacity: 1; grid-template-rows: 1fr; }
+    to { opacity: 0; grid-template-rows: 0fr; }
+  }
+
+  .row[data-entering] { animation: row-in var(--dur-3) var(--ease-out); }
+  .row[data-leaving] {
+    display: grid;
+    grid-template-rows: 0fr;
+    animation: row-out var(--dur-3) var(--ease-out) forwards;
+    overflow: hidden;
+    border-block-end: 0;
+  }
+  .row[data-leaving] > * { overflow: hidden; }
+
+  /* ======================================================= empty states */
+
+  .empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding-block: var(--space-8) var(--space-6);
+    text-align: center;
+  }
+
+  .empty-art {
+    inline-size: min(60%, 11rem);
+    block-size: auto;
+    color: var(--rule-strong);
+  }
+
+  .empty-title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .empty-body {
+    margin: 0;
+    max-inline-size: 26ch;
+    font-size: var(--fs-sm);
+    color: var(--ink-2);
+  }
+
+  .empty-filters { font-weight: 700; color: var(--ink); font-style: italic; }
+
+  .empty-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+
+  .kbd-inline {
+    font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+    font-size: 0.9em;
+    padding: 0.05em 0.35em;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-sm);
+  }
+
+  /* =========================================================== undo bar */
+
+  .undobar {
+    position: fixed;
+    z-index: 46;
+    /* Above the tab bar AND above the FAB — the one piece of furniture that
+       could otherwise be covered by it. */
+    inset-block-end: calc(
+      var(--tabbar-height) + var(--safe-bottom) + var(--fab-size) + var(--fab-offset) * 2
+    );
+    inset-inline: 0;
+    margin-inline: auto;
+    max-inline-size: min(calc(100% - var(--gutter) * 2), calc(var(--page-max) - var(--gutter) * 2));
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-pop);
+    animation: row-in var(--dur-3) var(--ease-out);
+  }
+
+  .undobar-text {
+    margin: 0;
+    flex: 1;
+    min-inline-size: 0;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-undo {
+    flex: none;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 700;
+  }
+  .btn-undo:hover { background: color-mix(in oklab, var(--accent) 88%, var(--ink)); }
+
+  /* The countdown is decoration only: the announcement said how long there
+     is, and the button works for the whole window either way. */
+  .undobar-clock {
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-start: 0;
+    block-size: 2px;
+    inline-size: calc(var(--left, 1) * 100%);
+    background: var(--accent);
+    border-radius: var(--r-pill);
+  }
+
+  /* ======================================================= detail sheet */
+
+  .detail-amount {
+    margin: 0 0 var(--space-4);
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    line-height: var(--lh-tight);
+  }
+  .detail-amount[data-tone="out"] { color: var(--money-out); }
+  .detail-amount[data-tone="in"] { color: var(--money-in); }
+  .detail-amount[data-tone="neutral"] { color: var(--transfer-ink); }
+
+  .detail-word {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .detail-list {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+  }
+  .detail-list dt {
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-3);
+    align-self: center;
+  }
+  .detail-list dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink);
+  }
+  /* The full note, wrapping as far as it needs to. */
+  .detail-note { font-style: italic; font-weight: 500; color: var(--ink-2); }
+
+  .sheet-foot-split { display: flex; justify-content: space-between; gap: var(--space-3); }
+
+  .btn-danger {
+    color: var(--money-out);
+    border: 1px solid color-mix(in oklab, var(--money-out) 45%, transparent);
+  }
+  .btn-danger:hover { background: color-mix(in oklab, var(--money-out) 12%, transparent); }
+
+  /* ====================================================== filter sheet */
+
+  .opt-checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: var(--space-1) var(--space-3);
+  }
+  .opt-checks-row { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+  /* The label is the target, not the 18px box inside it — clicking the word
+     toggles the checkbox, so the whole label has to clear the floor. */
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 2.75rem;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+    padding-block: 0.35rem;
+  }
+  .check input { inline-size: 1.1rem; block-size: 1.1rem; accent-color: var(--accent-text); }
+  .check:hover { color: var(--ink); }
+
+  .sheet-body input[type="search"] {
+    inline-size: 100%;
+    min-block-size: 2.75rem;
+    font: inherit;
+    padding: var(--space-2) var(--space-3);
+    background: var(--sunken);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--r-sm);
+    color: var(--ink);
+  }
+
+  /* ====================================================== the show-total */
+
+  /* Hidden means hidden, not gone: the column keeps its width so the other
+     two figures do not move when it is switched off. */
+  .triad[data-total="hidden"] [data-figure="net"] dd { visibility: hidden; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row[data-entering], .row[data-leaving], .undobar { animation: none; }
+    .row-open, .chip { transition: none; }
+  }
+
+  /* =================================================== the row's own width --
+     These sit at the end on purpose. A container query adds no specificity,
+     so a rule inside one beats the base rule it narrows only by coming after
+     it; higher up the file, every line below would silently win instead.
+
+     The question is how wide the *column* is, not the window. That is what
+     lets one row component work full-width on a phone and in the companion
+     column beside the breakdown on a laptop, with no second set of rules and
+     no viewport width standing in for a measurement it cannot make.
+
+     Below 24rem of column three things give way, in the order they can be
+     spared: the note, which the detail sheet shows in full anyway, then the
+     air and the chip, so the title and the amount keep their size. Nothing
+     here drops a number, a label or a target below its floor, and none of it
+     touches the row's accessible name — that is built in ledger.js from the
+     record and carries the category, the account, the note and the date
+     whatever the column is doing. */
+
+  @container pane (max-width: 24rem) {
+    .row-open {
+      gap: var(--space-2);
+      padding-inline: var(--space-2) 0;
+    }
+    .row-chip { --chip-size: 1.75rem; }
+    .row-note { display: none; }
+    .day-head { gap: var(--space-2); }
+    .chips { gap: var(--space-1); }
+  }
+
+  /* Narrower still and the account's name goes too, leaving its mark. The
+     glyph is the account's second signal everywhere else in the app, so the
+     row still says which account it was — and the spoken name still says it
+     in words. */
+  @container pane (max-width: 17rem) {
+    .row-account-name { display: none; }
+    .qa-line { padding-inline-start: var(--space-2); }
+  }
+}

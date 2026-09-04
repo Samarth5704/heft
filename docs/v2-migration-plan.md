@@ -32,6 +32,25 @@
 
 ## B. Data model delta
 
+> **Budgets superseded, 31 August 2026.** `budgetPaise` has now left
+> `Category` as sketched below, in schema v3 — see the step 5/7/8 note at the
+> end of F for the shape that shipped and for how a monthly budget is read
+> over a period that is not a month.
+>
+> **Superseded in part, 30 August 2026.** The shipped schema splits the two
+> fields differently from the sketch below: `kind` is `'transaction' |
+> 'transfer'` and `direction` is `'expense' | 'income'`, so "is this a
+> transfer" and "which way does the money go" are two independent questions
+> rather than three values in one field. `analytics.isExpense` / `isIncome` /
+> `isTransfer` are the predicates to use; nothing should test `kind` against
+> `'expense'`. Three smaller divergences: `Account` names its type field
+> `type`, not `kind`, so it does not collide with a transaction's; `Settings`
+> carries `defaultExpenseCategoryId` and `defaultIncomeCategoryId` rather than
+> one `defaultCategoryId`, because the sink differs per direction; and
+> ~~**`budgetPaise` has *not* yet left `Category`**~~ — done in v3, above.
+> Positive amounts, one record per transfer, and derived balances all shipped
+> as written.
+
 ```
 Transaction {
   id, kind: 'expense' | 'income' | 'transfer',
@@ -147,16 +166,266 @@ Everything that can produce a silently wrong number is built and tested before a
 | 1 | v2 schema, `validateTransaction`, accounts, budgets map, `migrateV1toV2`, v2-aware `normalise` — **no UI** | New v1→v2 tests incl. a real v1 export fixture; the running v1 app still loads because migrate upgrades on read |
 | 2 | Kind-aware analytics; every aggregation entry point takes an explicit kind | Tests, **plus** the running app shows numbers identical to today on expense-only data — the regression check that migration changed nothing visible |
 | 3 | Account balances + net worth (still no Accounts tab) | The E2 and E6 invariants under random transfers |
-| 4 | Records tab: Expense/Income/Total triad, income and transfer rows, account label, FAB with the bottom-padding invariant | Browser |
+| 4 | Records tab: Expense/Income/Total triad, income and transfer rows, account label, FAB with the bottom-padding invariant | Browser — **done, gate re-run below** |
 | 5 | Accounts tab | Browser + balance invariants |
 | 6 | Analysis tab: expense/income switch, proportional bars | Browser + hidden-table equivalence |
 | 7 | Per-month budgets + copy-from-past-month | Tests for the budgets map, then browser |
 | 8 | Categories split by kind + icon picker | Browser |
 | 9 | Display options: period model, show-total, carry-over | Carry-over tests **first** (E4), then browser. Last because the period model multiplies the surface of every aggregation |
-| 10 | Drawer, Preferences, Export Report | Browser |
+| 10 | Drawer, Preferences, Export Report | Browser — **done, see below** |
+
+**Progress, 30 August 2026.** Steps 0–3 landed in `c56ddb5`, along with the
+period model and carry-over that step 9 needs. Step 4 landed on 30 August,
+and the Records tab was built out on the new shell the same day — ledger,
+filters, detail sheet, undo, empty states, the three quick-add kinds, and the
+Display options sheet, which took step 9's period model and carry-over with
+it. Steps 5–8 and 10 are open.
+
+Two vocabulary breaks were found and closed while wiring it up, both of the
+kind that fail silently rather than loudly:
+
+- `router.VIEW_MODES` named `quarterly` / `halfyearly` while `dates.js` named
+  `3-month` / `6-month`. A route carrying either of the router's names
+  produced a null range from `periodRange` and would have emptied the pane
+  with no error. The router now names the same six modes `dates.js` does, and
+  a test asserts the two lists are identical rather than merely compatible.
+- The seed categories pointed at sprite icon names (`bowl`, `basket`,
+  `roof`…) that the icon registry does not define, and at colour tokens
+  (`cat-neutral`, `inc-*`, `acct-*`) that `tokens.css` does not define. Every
+  seed category would have drawn the fallback glyph on a transparent disc.
+  Seeds now use registry names, `--cat-neutral` is defined and measured in
+  both themes, and the accounts palette aliases the hues already checked.
+
+The route's `period` also widened from `YYYY-MM` to accept `YYYY-MM-DD`,
+because daily and weekly have to say which day. `anchorOf` collapses both
+forms to the date `periodRange` wants and `periodFor` decides which form a
+mode writes back, so the URL stays short for the modes that do not need a day.
+
+**Step 4's gate, re-run against the running app on the new shell.** Sample
+data, three months, 299 records:
+
+- adding a ₹9,999 transfer moves the expense figure, the income figure and
+  every day-header net by exactly nothing (E2);
+- adding a ₹90,000 income moves the income figure and leaves the expense
+  total and every visible expense row's `--t` unchanged (E1, E5);
+- carry-over on reports a total that matches an independently computed net of
+  everything before the period start, to the paise (E4);
+- the reconciler holds: 100 rows monthly, 8 daily, 299 yearly, with no
+  accumulation across mode switches — the inflated counts seen mid-switch are
+  rows still animating out;
+- at the bottom of the scroll the last row ends above the FAB, so the
+  clearance invariant holds rather than being asserted.
+
+**Known breakage.** `legacy.html` → `js/main.js` still calls
+`createLedger({onEdit, onDelete})` and reads the old row template. The
+renderer now takes `onOpen` and builds the reference's row anatomy, so the v1
+page's ledger no longer runs. Keeping one renderer answering to two row
+designs is worse than retiring the page it was written for; `legacy.html` and
+`js/main.js` should go when steps 5–10 have taken the rest of their panes.
+
+That commit shipped the whole data layer without touching `js/ui/`, which left
+the app throwing on boot for the duration — so **step 2's verification gate was
+never run at the time**. It has now been run as part of step 4, against the
+running app rather than only the suite:
+
+- adding a ₹90,000 income leaves the expense total, every day-header total and
+  the ledger's "spent" figure bit-identical (E1), and leaves all 95 visible
+  expense rows' `--t` unchanged to three decimals (E5);
+- deleting a transfer changes no total anywhere (E2);
+- filtering to income and transfers alone reports `₹0 spent`.
+
+The lesson for steps 5–10: a step whose verification says "the running app
+shows…" cannot be marked done while the UI for it does not run. Land the view
+alongside the logic, or record the gate as outstanding.
+
+**Step 6 landed, 31 August 2026 — the Analysis tab.** Four panels under one
+switch: the donut with its ranked list, daily bars with a trailing average,
+six periods, and mean vs median. The switch is expense / income / **net**, and
+it lives in the URL as `view=`, so `#/analysis?view=net&mode=yearly` is a
+linkable screen. Three things the step added that were not in the sketch:
+
+- `lib/chart.js`, the shaping layer between `analytics` and the SVG. Small
+  slices fold into "Other" (below 3%, or past seven, and never a tail of one);
+  a surviving slice is floored to a legible arc by taking the sliver from the
+  slices above it, total preserved; a period longer than 62 days is bucketed
+  into weeks rather than drawn as 365 pickets. All pure, all tested — 40 new
+  assertions, 866 in total.
+- `analytics.viewAmount`, the one place the transfer rule now lives for every
+  series. `dailyTotals`, `dailyTotalsBetween` and `dailySpendStatsForRange`
+  take a view and default to expense, so no existing caller changed meaning.
+- `ui/choice.js`: the radiogroup behaviour the two sheets already had, lifted
+  out so the view switch is the same control rather than a third copy of it.
+
+Step 6's gate, run against the running app on 297 sample records:
+
+- adding a ₹1,234 expense from the FAB while the Analysis tab is showing
+  repaints every panel through the store's subscription — total and every
+  share recomputed, no second rendering path;
+- the hidden table under each chart resolves through `aria-describedby`, and
+  the donut's table lists **all seven** categories where the ring draws six:
+  the grouping is a drawing decision and a reader who cannot see the drawing
+  does not inherit it;
+- a transfer and an income move nothing in the expense view's ring, bars,
+  six-period series or day-cost figures (E1, E2), which is now asserted in the
+  suite against the series themselves rather than only the ledger;
+- both themes, and the light theme is where the slice ramp is most visible;
+- the empty period is drawn and written, not four empty panels.
+
+One real bug this found, worth recording because it is the same failure the
+view-transition watchdog in `app.js` was written for: the draw-in animations
+were first written with `backwards` fill and a per-mark delay, which makes a
+mark's *resting* state invisible until its animation runs. In a document that
+is not producing frames — hidden, throttled, driven headlessly — it never
+runs, and the charts render blank rather than merely undecorated. Motion may
+decorate a drawing; it may never be the thing that makes it appear.
 
 The two questions this section originally left open — the FAB, and the CLAUDE.md
 "accounts" wording — are now settled. See G.
+
+**Steps 5, 7 and 8 landed, 31 August 2026 — the last three tabs.** Budgets,
+Accounts and Categories, on the same shell. 933 assertions, 67 of them new.
+
+**The schema moved to v3**, which is what step 7 always was: `budgetPaise`
+finally left `Category` for `budgets['YYYY-MM'][categoryId]`, and
+`migrateV2toV3` lifts the old per-category figure into **the current month
+only**. Writing it into every month would have invented a history nobody set —
+a budget added last week would suddenly have been in force since 2019, and
+last year's "over budget" would become a fact about this week's decision. The
+field itself is gone rather than left behind, so a budget has one place it can
+be read from. `migrate` now takes `today`, so which month inherits is a
+decision the caller makes and a test can pin.
+
+Three things the steps decided that the sketch in B did not:
+
+- **A budget is monthly; a period is whatever the stepper says.** Six view
+  modes times one budgets map would have been six sets of budgets free to
+  disagree. Instead `budgetForRange` prorates: a whole month returns its own
+  figure with no arithmetic at all, a week takes its share of the month, a
+  straddling week draws on both months, and six months add up. The sheet names
+  the months it will write to, every time, so a weekly view never looks as
+  though it has a separate plan.
+- **"Not budgeted" is a list, not a lump**, and it holds every unbudgeted
+  expense category, spent-in or not — it is simultaneously the report of money
+  outside the plan (largest first) and the place a budget gets set, so a
+  category with no spending yet still has to be reachable.
+- **Merge archives the source rather than deleting it**, so a period from
+  before the merge still resolves the name it was filed under, and the two
+  categories' budgets are added rather than one of them quietly vanishing.
+
+Two assumptions the tests caught as wrong on the way, both mine rather than the
+code's: spending *exactly* the budget is not "under" — there is nothing left,
+and the bar has to say so, so it is `near`; and the unbudgeted list is longer
+than the number of categories with spending, for the reason above.
+
+The gate, re-run against the running app on the sample ledger and a plan
+covering five of nine categories:
+
+- adding a ₹9,999 transfer from the FAB leaves **every** budget figure
+  bit-identical — rows, bands, pace sentences, the overall row and the
+  unbudgeted total — while moving exactly two balances by exactly ±₹9,999 and
+  leaving net worth, lifetime expense and lifetime income untouched (E2, E6);
+- adding ₹90,000 of income leaves every budget figure bit-identical and moves
+  the income and net figures by exactly that (E1);
+- a past period drops the projection and the pace mark and reports the result
+  instead; a future period says it has not started rather than claiming to be
+  perfectly on track; a yearly period puts the pace mark at 67% (243/365) and
+  shows all three bands at once, with "On track" landing where the fill meets
+  the mark;
+- archiving an account takes it off the list and changes the total by nothing,
+  because archived money is still money;
+- an opening balance of −₹4,000 moves that account's balance and net worth by
+  exactly −₹4,000, derived both times, never stored;
+- deleting a category with records refuses without an explicit choice and
+  states the count in both directions before either is taken;
+- both themes, and the bottom of every pane clears the FAB by 196px.
+
+**Two renames and one gap closed.** `ui/budgets.js` and `ui/categories.js`
+became `ui/legacy-budgets.js` and `ui/legacy-categories.js` (with
+`css/budgets.css` → `css/legacy-budgets.css`), the same move step 0 made for
+`transfer.js` — two files named `budgets.js` meaning different things is
+precisely the two-vocabularies failure this project keeps closing. And
+`css/dialogs.css` is new: the v2 shell had shipped the transaction dialog's
+markup and behaviour in step 4 but none of its styling, which lived only in the
+v1 `forms.css`. The three new sheets need the same field, error and segmented
+primitives, so there is now one copy that every dialog uses.
+
+`.claude/launch.json` now runs `scripts/serve.py` rather than bare
+`http.server`. The bare server sends no cache headers, so the browser served a
+stale module graph that read the new v3 payload as a future schema and locked
+the app read-only — a convincing impression of a migration bug, caused entirely
+by the tooling. `serve.py` exists for exactly this and was simply not wired up.
+
+**Step 10 landed, 31 August 2026 — the drawer's data tools, and the end of
+the table.** Export Report, Backup & Restore and Delete & Reset, in
+`ui/manage-data.js`. 973 assertions, 40 of them new. That closes steps 0-10;
+nothing in F is outstanding.
+
+`ui/data.js` was the starting point as expected, and none of it survived
+unchanged — it was written against the v1 schema and against a drawer that
+did not exist. What carried over is its shape: read and apply are two steps,
+the preview is stated in numbers, and deleting requires typing the word.
+
+Four things the step decided that the sketch did not:
+
+- **Export and restore are different sheets, and only one of them downloads.**
+  "Export Report" owns every download; "Backup & Restore" owns reading a file
+  back and links across to the other rather than growing a second download
+  path that could drift from the first. The formats are named for what they
+  are for: the JSON backup says it is the only one that comes back, because
+  offering an undifferentiated "export" is how someone ends up holding a CSV
+  they expected to restore.
+- **CSV is a new pure module, `lib/csv.js`, with 35 assertions**, because the
+  quoting is the whole risk. A note is free text and free text is where a
+  hand-rolled writer breaks: a comma splits one column into two, a quote ends
+  the field early, and a newline splits one row into two. The last is the one
+  that gets missed — it survives a glance at the file and corrupts a row three
+  thousand lines down. All three have a test, together and separately, and the
+  pipeline was re-run against the real 299-record ledger: 299 records still
+  produce 299 record lines. The BOM lives on the Blob in `ui/`, never in the
+  module, so the pure function keeps no opinion about who will read it.
+- **`summariseImport` gained `conflicts` and `transactionsUpdated`.** The
+  preview needed a word for the one place the two modes disagree — merge keeps
+  yours, replace takes theirs — and merge reporting **"Changed: 0"** is the
+  point of the whole module rather than a line it can leave out.
+  `replace.transactionsRemoved` also changed meaning: it now counts what is
+  lost *for good*, excluding the records the file overwrites, because a record
+  that is replaced is not a record that is gone.
+- **Delete and reset are two actions with two different words.** Emptying the
+  ledger and throwing away the accounts, categories, plan and preferences
+  built around it are not degrees of the same thing. `store.resetAll` is new
+  beside `clearAll`, and the confirmation is `CLEAR` for one and `RESET` for
+  the other so that having typed one does not carry you through the other.
+
+**The quota banner was missing entirely, and that is the real find.** CLAUDE.md
+has required a visible, actionable message on `QuotaExceededError` since v1,
+`storage.saveState` has always reported it, and `store` has always carried it
+in `ui.saveError` — but the v2 shell never read it. Only the retired
+`js/main.js` did. So from step 4 until now, a failed write was silent: the
+number on screen was right, the number on disk was not, and nothing said so.
+It is the exact failure mode the rule exists to prevent, and it survived six
+steps because it is invisible until storage is actually full.
+
+The lesson is the same one step 2 taught in a different key. There, a step was
+marked done while the UI for it did not run; here, a rule was satisfied in the
+data layer and quietly dropped on the way to the new shell. **A guarantee that
+lives in the store is not a guarantee until something renders it.**
+
+Verified against the running app: a forced `QuotaExceededError` raises a
+banner naming what happened, what is still true and what to do, with the
+export attached to it as a real button and one announcement per distinct
+problem rather than one per keystroke.
+
+**`legacy.html` and `js/main.js` are now fully superseded.** `ui/data.js` was
+the last thing they held that the v2 app did not, and `ui/manage-data.js` has
+taken it. `js/main.js` still writes `Category.budgetPaise` and
+`legacy-budgets.js` still calls `budgetReport` with the v2 four-argument
+signature, so the page has not run since step 4 and cannot without being
+rewritten against v3. Retiring `legacy.html`, `js/main.js`, `js/ui/data.js`,
+`js/ui/legacy-budgets.js`, `js/ui/legacy-categories.js` and the four v1
+stylesheets (`layout`, `ledger`, `charts`, `forms`, `legacy-budgets`) is now
+a deletion with nothing behind it. Left in place here deliberately: it is a
+separate commit from the one that shipped the tools, and it is not this
+step's to make.
 
 ---
 
@@ -191,5 +460,14 @@ Consequences for the build:
 
 Two loose ends, flagged rather than assumed:
 
-1. **The fate of the existing "Add with details" button was not stated.** It would open the same form the FAB now opens. My recommendation is that it goes and the FAB becomes the single full-form entry point, leaving the quick-add command line as the fast path — but that is a recommendation, not a recorded decision.
-2. **"Hides the direction control" implies a direction control exists in the form.** For expense and income, `direction` is fully determined by `kind` (`out` and `in` respectively), and for a transfer it is fixed `out` of the source account — so on the model as specified in B, the segmented control *is* the only direction input and there is nothing separate to hide. Recorded as stated; if a distinct direction control is intended, say what it is for.
+1. ~~**The fate of the existing "Add with details" button was not stated.**~~
+   **Settled 30 August 2026: it goes.** The FAB is the single full-form entry
+   point and the quick-add command line stays the fast path. `#add-details` is
+   removed from the markup; `n` and the FAB both open the same dialog.
+2. **"Hides the direction control" implies a direction control exists in the form.**
+   *Confirmed in the build:* there is nothing separate to hide. The segmented
+   control is the only direction input, and selecting Transfer swaps the
+   category field for a destination account, renames "Account" to "From
+   account", and scopes the category list by kind.
+
+   Original note follows. For expense and income, `direction` is fully determined by `kind` (`out` and `in` respectively), and for a transfer it is fixed `out` of the source account — so on the model as specified in B, the segmented control *is* the only direction input and there is nothing separate to hide. Recorded as stated; if a distinct direction control is intended, say what it is for.

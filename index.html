@@ -1,570 +1,583 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Heft — an expense manager where money has mass.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Heft — money has mass</title>
+<meta name="description" content="An expense manager where money has mass. Offline, single user, INR.">
 <meta name="color-scheme" content="light dark">
-<title>Heft</title>
+<meta name="theme-color" content="#4A4840" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#E4DFCF" media="(prefers-color-scheme: light)">
 
+<!-- The only permitted external resource. Quicksand carries the whole
+     interface; Yellowtail is subset with `text=Heft` so the wordmark costs a
+     few hundred bytes rather than a whole script face. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap">
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Yellowtail&text=Heft&display=swap">
 
 <link rel="stylesheet" href="css/reset.css">
 <link rel="stylesheet" href="css/tokens.css">
-<link rel="stylesheet" href="css/layout.css">
-<link rel="stylesheet" href="css/ledger.css">
-<link rel="stylesheet" href="css/charts.css">
-<link rel="stylesheet" href="css/budgets.css">
-<link rel="stylesheet" href="css/forms.css">
+<link rel="stylesheet" href="css/shell.css">
+<link rel="stylesheet" href="css/records.css">
+<link rel="stylesheet" href="css/analysis.css">
+<link rel="stylesheet" href="css/dialogs.css">
+<link rel="stylesheet" href="css/manage.css">
+<!-- Last, so `@layer wide` sits above every component layer and the
+     breakpoint rules never fight specificity to win. -->
+<link rel="stylesheet" href="css/wide.css">
 </head>
 <body>
 
-<!-- Icon sprite. Hand-written, no icon font, no emoji. -->
-<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <symbol id="i-edit" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13.4 3.6a1.7 1.7 0 0 1 2.4 2.4L7.6 14.2 4 15.2l1-3.6z"/>
-      <path d="M12.2 4.8 14.6 7.2"/>
-    </symbol>
-    <symbol id="i-delete" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4.5 5.8h11"/>
-      <path d="M8.1 5.8V4.4h3.8v1.4"/>
-      <path d="M6.1 5.8 6.8 16h6.4l.7-10.2"/>
-      <path d="M8.6 8.4v5M11.4 8.4v5"/>
-    </symbol>
-    <symbol id="i-undo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 6.5h6.8a4.2 4.2 0 0 1 0 8.4H6"/>
-      <path d="M6.6 3.6 3.7 6.5l2.9 2.9"/>
-    </symbol>
-    <symbol id="i-rise" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.2 10.4 9H1.6z" fill="currentColor"/></symbol>
-    <symbol id="i-fall" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 9.8 1.6 3h8.8z" fill="currentColor"/></symbol>
-    <symbol id="i-prev" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 6.5 10l5.5 5.5"/></symbol>
-    <symbol id="i-next" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5 13.5 10 8 15.5"/></symbol>
-    <symbol id="i-search" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8.8" cy="8.8" r="4.6"/><path d="m12.4 12.4 3.2 3.2"/></symbol>
-    <symbol id="i-close" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m5.5 5.5 9 9M14.5 5.5l-9 9"/></symbol>
-    <symbol id="i-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="10" cy="10" r="3.4"/><path d="M10 2.6v1.8M10 15.6v1.8M17.4 10h-1.8M4.4 10H2.6M15.2 4.8l-1.3 1.3M6.1 13.9l-1.3 1.3M15.2 15.2l-1.3-1.3M6.1 6.1 4.8 4.8"/></symbol>
-    <symbol id="i-plus" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M10 4.6v10.8M4.6 10h10.8"/></symbol>
-    <symbol id="i-keys" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2.4" y="5.4" width="15.2" height="9.2" rx="1.4"/><path d="M5.6 8.4h.01M8.2 8.4h.01M10.8 8.4h.01M13.4 8.4h.01M6.6 11.6h6.8"/></symbol>
-    <symbol id="i-download" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.4v8.4"/><path d="m6.4 8.6 3.6 3.6 3.6-3.6"/><path d="M4 14.2v1.4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1.4"/></symbol>
-    <symbol id="i-upload" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.4V4"/><path d="m6.4 7.2 3.6-3.6 3.6 3.6"/><path d="M4 14.2v1.4a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1.4"/></symbol>
-    <symbol id="i-tag" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 9.2V4.4a.8.8 0 0 1 .8-.8h4.8l7 7-5.6 5.6z"/><circle cx="6.9" cy="6.9" r="1.1"/></symbol>
-    <symbol id="i-moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11.6A6.6 6.6 0 0 1 8.4 4a6.6 6.6 0 1 0 7.6 7.6z"/></symbol>
-  </defs>
-</svg>
+<a class="skip-link" href="#pane-region">Skip to content</a>
 
-<a class="skip-link" href="#ledger-region">Skip to the ledger</a>
+<div class="app" id="app">
 
-<div class="app">
+  <!-- ===================================================== top header -->
+  <header class="app-header">
+    <div class="app-header-inner">
+      <button type="button" class="icon-btn" id="drawer-open"
+              aria-label="Open menu" aria-expanded="false" aria-controls="drawer"></button>
 
-  <header class="masthead">
-    <div class="masthead-inner">
-      <h1 class="wordmark">Heft</h1>
-      <p class="tagline">Money has mass.</p>
-      <div class="masthead-actions">
-        <button type="button" class="btn btn-quiet" id="theme-button" aria-live="off">
-          <svg class="icon" aria-hidden="true"><use href="#i-sun"></use></svg>
-          <span id="theme-label">System</span>
-        </button>
-      </div>
+      <h1 class="wordmark" id="wordmark">Heft</h1>
+
+      <!-- Empty on a phone. From 720px up the add button moves in here, so
+           the control sits in the header rather than floating over content
+           there is now room to sit beside. -->
+      <div class="header-actions" id="header-actions"></div>
+
+      <button type="button" class="icon-btn" id="search-toggle"
+              aria-label="Search records" aria-expanded="false" aria-controls="search-field"></button>
+    </div>
+
+    <!-- Collapsed until asked for. The query lives in the URL, so a search is
+         a linkable state like any other. -->
+    <div class="search-field" id="search-field" hidden>
+      <label class="visually-hidden" for="search-input">Search notes</label>
+      <input type="search" id="search-input" name="q" autocomplete="off"
+             placeholder="Search notes…" enterkeyhint="search">
+      <button type="button" class="btn btn-quiet" id="search-clear">Clear</button>
     </div>
   </header>
 
-  <section class="quick-add" aria-labelledby="qa-heading">
-    <h2 class="visually-hidden" id="qa-heading">Quick add</h2>
-    <form id="qa-form" novalidate>
-      <div class="qa-line">
-        <span class="qa-prompt" aria-hidden="true">&rsaquo;</span>
-        <label class="visually-hidden" for="qa-input">
-          Add an expense in one line, for example 250 chai, or 1.2k rent yesterday
-        </label>
-        <input type="text" id="qa-input" name="entry" autocomplete="off"
-               spellcheck="false" autocapitalize="none"
-               placeholder="250 chai&#8195;·&#8195;1.2k rent&#8195;·&#8195;swiggy 480 yesterday"
-               aria-describedby="qa-live">
-        <button type="submit" class="btn btn-primary" id="qa-submit">
-          <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
-          Add
-        </button>
-      </div>
-      <!-- The visual parse. Its spoken twin is #qa-live, debounced, so the
-           field does not narrate a re-parse on every keystroke. -->
-      <div class="qa-preview" id="qa-preview" data-state="empty" aria-hidden="true"></div>
-      <p class="qa-notice" id="qa-notice" hidden></p>
-    </form>
-
-    <div class="qa-tools">
-      <button type="button" class="btn btn-quiet" id="add-details">
-        <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
-        Add with details
-      </button>
-      <button type="button" class="btn btn-quiet" id="help-button">
-        <svg class="icon" aria-hidden="true"><use href="#i-keys"></use></svg>
-        Shortcuts
-      </button>
+  <!-- ===================================================== period bar -->
+  <!-- Deliberately NOT on the header band. The triad's money colours cannot
+       reach 4.5:1 against that light olive; on the page ground they clear it
+       comfortably. Structure follows the reference, contrast does not. -->
+  <div class="period-bar" id="period-bar">
+    <div class="period-nav">
+      <button type="button" class="icon-btn" id="period-prev" aria-label="Previous period"></button>
+      <h2 class="period-label" id="period-label" aria-live="polite">August 2026</h2>
+      <button type="button" class="icon-btn" id="period-next" aria-label="Next period"></button>
+      <button type="button" class="icon-btn" id="filter-open"
+              aria-label="Filter records" aria-haspopup="dialog"></button>
+      <button type="button" class="icon-btn" id="display-open"
+              aria-label="Display options" aria-haspopup="dialog"></button>
     </div>
-    <p class="visually-hidden" id="qa-live" role="status" aria-live="polite"></p>
-  </section>
 
-  <!-- Storage failures are visible, never silent. -->
-  <div class="banner" id="save-banner" role="alert" hidden>
-    <p id="save-banner-text"></p>
-    <button type="button" class="btn btn-quiet" id="save-banner-dismiss">Dismiss</button>
+    <!-- Three columns, always three. A period with no income still shows the
+         income column at zero rather than reflowing the row. -->
+    <dl class="triad" id="triad">
+      <div class="triad-cell" data-figure="expense">
+        <dt>Expense</dt>
+        <dd class="num" id="fig-expense">₹0.00</dd>
+      </div>
+      <div class="triad-cell" data-figure="income">
+        <dt>Income</dt>
+        <dd class="num" id="fig-income">₹0.00</dd>
+      </div>
+      <div class="triad-cell" data-figure="net">
+        <dt>Total</dt>
+        <dd class="num" id="fig-net">₹0.00</dd>
+      </div>
+    </dl>
   </div>
 
-  <div class="month-bar" id="month-bar">
-    <div class="month-bar-inner">
-      <div class="month-nav">
-        <button type="button" class="icon-btn" id="month-prev" aria-label="Previous month">
-          <svg class="icon" aria-hidden="true"><use href="#i-prev"></use></svg>
-        </button>
-        <h2 class="month-name" id="month-name">August 2025</h2>
-        <button type="button" class="icon-btn" id="month-next" aria-label="Next month">
-          <svg class="icon" aria-hidden="true"><use href="#i-next"></use></svg>
-        </button>
-      </div>
-
-      <div class="month-figures">
-        <p class="month-total num" id="month-total"><span class="sym">₹</span><span id="month-total-digits">0</span></p>
-        <p class="month-delta" id="month-delta"></p>
-      </div>
+  <!-- ================================================ storage problems --
+       Never a silent failure. A write that did not happen is the one thing
+       this app cannot let pass unmentioned: the number on screen is right
+       and the number on disk is not, and only the person looking at it can
+       resolve that. So the message says what happened, what is still true,
+       and what to do — with the doing attached to it as a real button. -->
+  <div class="alert" id="storage-alert" role="alert" hidden>
+    <div class="alert-body">
+      <p class="alert-title" id="storage-alert-title"></p>
+      <p class="alert-text" id="storage-alert-text"></p>
+    </div>
+    <div class="alert-actions">
+      <button type="button" class="btn btn-primary btn-small" id="storage-alert-export">
+        Export a backup
+      </button>
+      <button type="button" class="btn btn-quiet btn-small" id="storage-alert-dismiss">
+        Dismiss
+      </button>
     </div>
   </div>
 
-  <main class="main">
-    <form class="filters" id="filters" role="search" aria-label="Filter expenses">
-      <div class="filter-row">
-        <div class="field field-search">
-          <label class="field-label" for="filter-query">Search notes</label>
-          <div class="input-wrap">
-            <svg class="icon input-icon" aria-hidden="true"><use href="#i-search"></use></svg>
-            <input type="search" id="filter-query" name="q" placeholder="chai, swiggy, rent…" autocomplete="off">
+  <!-- ========================================================== panes -->
+  <main class="pane-region" id="pane-region" tabindex="-1">
+    <section class="pane" id="pane-records" aria-labelledby="tab-records" hidden>
+
+      <!-- Active filters, directly under the period bar. Each chip is a
+           button that removes the thing it names; the row disappears when
+           nothing is narrowing the list. -->
+      <div class="chips" id="chips" hidden>
+        <h2 class="visually-hidden">Active filters</h2>
+        <ul class="chip-list" id="chip-list" role="list"></ul>
+        <button type="button" class="chip chip-clear" id="chips-clear">Clear all</button>
+      </div>
+
+      <!-- The command line. The fast path stays the fast path: the FAB opens
+           the full form, this takes a typed line. -->
+      <section class="quick-add" aria-labelledby="qa-heading">
+        <h2 class="visually-hidden" id="qa-heading">Quick add</h2>
+        <form id="qa-form" novalidate>
+          <div class="qa-line">
+            <span class="qa-prompt" aria-hidden="true">&rsaquo;</span>
+            <label class="visually-hidden" for="qa-input">
+              What did you spend? Type an amount and a note.
+            </label>
+            <input type="text" id="qa-input" name="entry" autocomplete="off"
+                   enterkeyhint="done" placeholder="250 chai &middot; +5000 salary"
+                   aria-describedby="qa-live">
+            <button type="submit" class="btn btn-primary" id="qa-submit">Add</button>
           </div>
-        </div>
+          <!-- The visual parse. Its spoken twin is #qa-live, debounced, so a
+               screen reader is not re-read on every keystroke. -->
+          <div class="qa-preview" id="qa-preview" data-state="empty" aria-hidden="true"></div>
+          <p class="qa-notice" id="qa-notice" hidden></p>
+        </form>
+        <p class="visually-hidden" id="qa-live" role="status" aria-live="polite"></p>
+      </section>
 
-        <div class="field">
-          <label class="field-label" for="filter-scope">Range</label>
-          <select id="filter-scope" name="scope">
-            <option value="month">This month</option>
-            <option value="all">All months</option>
-          </select>
-        </div>
-      </div>
+      <h2 class="visually-hidden" id="ledger-heading">Transactions</h2>
+      <ul class="ledger" id="ledger" role="list" aria-labelledby="ledger-heading"></ul>
 
-      <fieldset class="chipset" id="filter-categories">
-        <legend class="field-label">Categories</legend>
-        <div class="chips" id="category-chips"></div>
-      </fieldset>
-
-      <fieldset class="chipset" id="filter-methods">
-        <legend class="field-label">Payment</legend>
-        <div class="chips">
-          <button type="button" class="chip" data-method="cash" aria-pressed="false">Cash</button>
-          <button type="button" class="chip" data-method="upi" aria-pressed="false">UPI</button>
-          <button type="button" class="chip" data-method="card" aria-pressed="false">Card</button>
-        </div>
-      </fieldset>
-
-      <div class="filter-summary" id="filter-summary" hidden>
-        <p id="filter-summary-text"></p>
-        <button type="button" class="btn btn-quiet" id="clear-filters">Clear filters</button>
-      </div>
-    </form>
-
-    <section class="budgets" id="budgets" aria-labelledby="budgets-heading">
-      <div class="budgets-head">
-        <h2 id="budgets-heading">Budgets</h2>
-        <div class="budgets-meta">
-          <p class="budgets-scope" id="budgets-scope"></p>
-          <button type="button" class="btn btn-quiet" data-action="edit-budgets">
-            <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
-            Edit budgets
-          </button>
-        </div>
-      </div>
-
-      <ul class="budget-list" id="budget-list" role="list"></ul>
-
-      <div class="budgets-empty" id="budgets-empty" hidden>
-        <svg class="budgets-empty-art" viewBox="0 0 160 90" role="img" aria-labelledby="budgets-empty-art-title">
-          <title id="budgets-empty-art-title">An empty measuring jug beside a ruled line</title>
-          <g fill="none" stroke="currentColor" stroke-linecap="round">
-            <path d="M28 22h58l-6 52a8 8 0 0 1-8 7H42a8 8 0 0 1-8-7z" stroke-width="1.6" opacity=".8"/>
-            <path d="M86 34h12a10 10 0 0 1 0 20h-9" stroke-width="1.6" opacity=".8"/>
-            <path d="M36 44h44M38 58h40" stroke-width="1" opacity=".35"/>
-            <path d="M112 26h34M112 44h34M112 62h22" stroke-width="1" opacity=".25"/>
+      <!-- Three states, three different facts, three different remedies.
+           Which one is shown is decided in records.js. -->
+      <div class="empty" id="empty-all" hidden>
+        <svg class="empty-art" viewBox="0 0 140 104" role="img" aria-labelledby="art-all-title">
+          <title id="art-all-title">An open, empty ledger</title>
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M70 30c0-8-12-13-27-13H23v58h20c15 0 27 5 27 13z"/>
+            <path d="M70 30c0-8 12-13 27-13h20v58H97c-15 0-27 5-27 13z"/>
+            <path d="M70 30v58" stroke-dasharray="4 6"/>
+            <path d="M33 36h22M33 47h16M85 36h22M85 47h16" opacity="0.45"/>
           </g>
+          <circle cx="70" cy="17" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/>
+          <path d="M70 13.5v7M67 17h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
-        <h3>No budgets set</h3>
-        <p>
-          Give a category a monthly budget and Heft will track it against the calendar,
-          not just the total — how far through the month you are, and where that puts you.
+        <p class="empty-title">Nothing written down yet</p>
+        <p class="empty-body">
+          Type an amount on the line above. <span class="kbd-inline">250 chai</span> is a whole
+          entry; <span class="kbd-inline">+5000 salary</span> is income, and
+          <span class="kbd-inline">2000 bank to cash</span> moves money between accounts.
+          The <span class="kbd-inline">+</span> button opens the full form.
         </p>
-        <button type="button" class="btn btn-primary" data-action="edit-budgets">Set a budget</button>
+        <button type="button" class="btn btn-quiet" id="empty-sample">Fill it with sample data</button>
       </div>
-    </section>
 
-    <section class="analysis" id="analysis" aria-labelledby="analysis-heading">
-      <div class="analysis-head">
-        <h2 id="analysis-heading">Analysis</h2>
-        <p class="analysis-scope" id="analysis-scope"></p>
-      </div>
-      <div id="analysis-panels"></div>
-    </section>
-
-    <section id="ledger-region" class="ledger-region" aria-labelledby="ledger-heading" tabindex="-1">
-      <h2 class="visually-hidden" id="ledger-heading">Expenses</h2>
-      <p class="ledger-count num" id="ledger-count"></p>
-      <ol class="ledger" id="ledger" role="list"></ol>
-
-      <!-- Empty states: drawn and written, and distinct from each other. -->
-      <div class="empty" id="empty-fresh" hidden>
-        <svg class="empty-art" viewBox="0 0 220 150" role="img" aria-labelledby="empty-fresh-art-title">
-          <title id="empty-fresh-art-title">An unused ledger page with ruled lines and a pen resting on it</title>
-          <g fill="none" stroke="currentColor" stroke-linecap="round">
-            <rect x="26" y="14" width="150" height="122" stroke-width="1.4" opacity=".55"/>
-            <path d="M44 14v122" stroke-width="1" opacity=".35"/>
-            <g stroke-width="1" opacity=".28">
-              <path d="M56 40h104M56 58h104M56 76h104M56 94h104M56 112h84"/>
-            </g>
-            <path d="M56 28h58" stroke-width="2.2" opacity=".5"/>
-            <path d="M150 122c14-16 28-38 38-64l10 6c-12 26-26 48-40 62z" stroke-width="1.4" opacity=".8"/>
-            <path d="m188 58 10 6" stroke-width="1.4" opacity=".8"/>
-            <path d="m148 124 2-10 8 5z" stroke-width="1.4" opacity=".8"/>
+      <div class="empty" id="empty-period" hidden>
+        <svg class="empty-art" viewBox="0 0 140 104" role="img" aria-labelledby="art-period-title">
+          <title id="art-period-title">A calendar page with no entries</title>
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="26" y="24" width="88" height="64" rx="6"/>
+            <path d="M26 42h88"/>
+            <path d="M45 16v14M95 16v14"/>
+            <path d="M40 58h12M64 58h12M88 58h12M40 72h12M64 72h12" opacity="0.4" stroke-dasharray="0.5 8"/>
           </g>
         </svg>
-        <h3>Nothing weighed yet</h3>
-        <p>Add your first expense and the ledger starts taking shape — small amounts sit light, big ones sit heavy.</p>
+        <p class="empty-title" id="empty-period-title">Nothing this period</p>
+        <p class="empty-body" id="empty-period-body">
+          You have records elsewhere &mdash; just not here.
+        </p>
         <div class="empty-actions">
-          <button type="button" class="btn btn-primary" id="load-sample">Load sample data</button>
+          <button type="button" class="btn btn-quiet" id="empty-period-prev">Previous period</button>
+          <button type="button" class="btn btn-quiet" id="empty-period-today">Back to today</button>
         </div>
-        <p class="empty-fine">Three months of plausible spending, generated locally. You can clear it any time.</p>
       </div>
 
       <div class="empty" id="empty-filtered" hidden>
-        <svg class="empty-art" viewBox="0 0 220 150" role="img" aria-labelledby="empty-filtered-art-title">
-          <title id="empty-filtered-art-title">A magnifying glass over ruled lines, finding nothing</title>
-          <g fill="none" stroke="currentColor" stroke-linecap="round">
-            <g stroke-width="1" opacity=".25">
-              <path d="M24 44h172M24 66h172M24 88h172M24 110h132"/>
-            </g>
-            <circle cx="96" cy="74" r="34" stroke-width="1.8" opacity=".75"/>
-            <path d="m121 99 24 24" stroke-width="2.6" opacity=".75"/>
-            <path d="M84 74h24" stroke-width="1.6" opacity=".45"/>
+        <svg class="empty-art" viewBox="0 0 140 104" role="img" aria-labelledby="art-filter-title">
+          <title id="art-filter-title">A filter with nothing coming through it</title>
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M34 24h72L78 57v27l-16 9V57z"/>
+            <path d="M70 96v6" opacity="0.5" stroke-dasharray="1 7"/>
           </g>
         </svg>
-        <h3>No expenses match</h3>
-        <p id="empty-filtered-detail">Nothing in this month matches the filters you have on.</p>
-        <div class="empty-actions">
-          <button type="button" class="btn btn-primary" id="empty-clear-filters">Clear filters</button>
-        </div>
+        <p class="empty-title">No records match</p>
+        <p class="empty-body">
+          Nothing here fits <span class="empty-filters" id="empty-filter-names"></span>.
+        </p>
+        <button type="button" class="btn btn-primary" id="empty-clear">Clear filters</button>
       </div>
+    </section>
+    <section class="pane" id="pane-analysis" aria-labelledby="tab-analysis" hidden>
+
+      <!-- The section header. The heading always names the view being shown;
+           the disclosure it contains opens the three-way switch. A real
+           radiogroup, not a row of buttons dressed as one. -->
+      <div class="overview">
+        <h2 class="overview-title">
+          <button type="button" class="overview-toggle" id="view-toggle"
+                  aria-expanded="false" aria-controls="opt-view">
+            <span id="view-title">Expense overview</span>
+          </button>
+        </h2>
+        <div class="opt-choices" role="radiogroup" aria-label="Which figures to analyse"
+             id="opt-view" hidden>
+          <button type="button" class="opt-choice" role="radio" data-value="expense" aria-checked="true" tabindex="0">Expense</button>
+          <button type="button" class="opt-choice" role="radio" data-value="income" aria-checked="false" tabindex="-1">Income</button>
+          <button type="button" class="opt-choice" role="radio" data-value="net" aria-checked="false" tabindex="-1">Net</button>
+        </div>
+        <p class="overview-note" id="analysis-note" hidden></p>
+      </div>
+
+      <div class="panels" id="analysis-panels"></div>
+
+      <div class="empty" id="analysis-empty" hidden>
+        <svg class="empty-art" viewBox="0 0 140 104" role="img" aria-labelledby="art-analysis-title">
+          <title id="art-analysis-title">An empty chart, waiting for figures</title>
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="70" cy="52" r="30" stroke-dasharray="5 7"/>
+            <circle cx="70" cy="52" r="13"/>
+            <path d="M22 88h96" opacity="0.5"/>
+          </g>
+        </svg>
+        <p class="empty-title">Nothing to chart</p>
+        <p class="empty-body" id="analysis-empty-body"></p>
+      </div>
+    </section>
+    <!-- ======================================================= budgets -->
+    <section class="pane" id="pane-budgets" aria-labelledby="tab-budgets" hidden>
+
+      <!-- The overall row leads. It compares budgeted spend against budgeted
+           money — not the whole period against a plan that only covers part
+           of it, which would guarantee an overrun and double-count what the
+           unbudgeted section already reports. -->
+      <div class="manage-head">
+        <h2 class="section-title">Budgets</h2>
+        <p class="section-note" id="budget-scope"></p>
+      </div>
+
+      <div class="overall" id="budget-overall" hidden>
+        <div class="overall-figures">
+          <p class="overall-spent num" id="budget-overall-spent"></p>
+          <p class="overall-of" id="budget-overall-of"></p>
+        </div>
+        <div class="budget-track" id="budget-overall-track">
+          <span class="budget-fill" id="budget-overall-fill"></span>
+          <span class="budget-pace" id="budget-overall-pace" hidden></span>
+        </div>
+        <p class="overall-status" id="budget-overall-status"></p>
+      </div>
+
+      <section class="manage-section" aria-labelledby="budget-set-heading">
+        <div class="manage-section-head">
+          <h3 class="manage-section-title" id="budget-set-heading">Budgeted this period</h3>
+          <button type="button" class="btn btn-quiet btn-small" id="budget-copy" hidden>
+            Copy from previous
+          </button>
+        </div>
+        <ul class="budget-list" id="budget-list" role="list"></ul>
+        <p class="manage-section-empty" id="budget-list-empty" hidden>
+          Nothing is budgeted for this period yet. Set one below and it starts pacing
+          from today.
+        </p>
+      </section>
+
+      <!-- Money outside every budget is the money most worth seeing. It is a
+           list, never a single lump, and its total is stated in full. -->
+      <section class="manage-section" aria-labelledby="budget-unset-heading">
+        <h3 class="manage-section-title" id="budget-unset-heading">Not budgeted this period</h3>
+        <p class="unbudgeted-total">
+          <span class="unbudgeted-figure num" id="budget-unbudgeted-total"></span>
+          <span class="unbudgeted-note" id="budget-unbudgeted-note"></span>
+        </p>
+        <ul class="budget-list budget-list-loose" id="budget-unbudgeted" role="list"></ul>
+      </section>
+    </section>
+
+    <!-- ====================================================== accounts -->
+    <section class="pane" id="pane-accounts" aria-labelledby="tab-accounts" hidden>
+
+      <!-- Lifetime, and it says so. The period bar above governs the other
+           tabs; a balance that silently meant "August only" would be the same
+           class of lie as a "total spent" that means "spent inside budgets". -->
+      <div class="networth">
+        <p class="networth-label">All accounts</p>
+        <p class="networth-figure num" id="networth-figure">&#8377;0.00</p>
+        <dl class="networth-lifetime">
+          <div>
+            <dt>Expense, lifetime</dt>
+            <dd class="num" id="networth-expense">&#8377;0.00</dd>
+          </div>
+          <div>
+            <dt>Income, lifetime</dt>
+            <dd class="num" id="networth-income">&#8377;0.00</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="manage-actions">
+        <button type="button" class="btn btn-quiet" id="account-transfer">Move money</button>
+        <button type="button" class="btn btn-quiet" id="account-add">New account</button>
+      </div>
+
+      <h2 class="visually-hidden" id="account-list-heading">Your accounts</h2>
+      <ul class="account-list" id="account-list" role="list"
+          aria-labelledby="account-list-heading"></ul>
+
+      <section class="manage-section" id="account-archived-section" hidden>
+        <h3 class="manage-section-title" id="account-archived-heading">Archived</h3>
+        <p class="manage-section-empty">
+          Archived accounts are off the pickers, but they still hold money and
+          still count towards the figure above.
+        </p>
+        <ul class="account-list" id="account-archived" role="list"
+            aria-labelledby="account-archived-heading"></ul>
+      </section>
+    </section>
+
+    <!-- ==================================================== categories -->
+    <section class="pane" id="pane-categories" aria-labelledby="tab-categories" hidden>
+      <div class="manage-head">
+        <h2 class="section-title">Categories</h2>
+        <p class="section-note">
+          A category&rsquo;s kind is fixed when it is made. Expense and income are
+          counted separately everywhere, so changing it later would silently rewrite
+          every total it has ever been part of.
+        </p>
+      </div>
+
+      <div class="manage-actions">
+        <button type="button" class="btn btn-quiet" id="category-add">New category</button>
+      </div>
+
+      <section class="manage-section" aria-labelledby="category-expense-heading">
+        <h3 class="manage-section-title" id="category-expense-heading">Expense</h3>
+        <ul class="category-list" id="category-expense" role="list"
+            aria-labelledby="category-expense-heading"></ul>
+      </section>
+
+      <section class="manage-section" aria-labelledby="category-income-heading">
+        <h3 class="manage-section-title" id="category-income-heading">Income</h3>
+        <ul class="category-list" id="category-income" role="list"
+            aria-labelledby="category-income-heading"></ul>
+      </section>
+
+      <section class="manage-section" id="category-archived-section" hidden>
+        <h3 class="manage-section-title" id="category-archived-heading">Archived</h3>
+        <p class="manage-section-empty">
+          Off the pickers, still on every record that already uses them.
+        </p>
+        <ul class="category-list" id="category-archived" role="list"
+            aria-labelledby="category-archived-heading"></ul>
+      </section>
     </section>
   </main>
 
-  <section class="data-section" id="data" aria-labelledby="data-heading">
-    <h2 id="data-heading">Your data</h2>
-    <p class="data-lede">
-      Everything you have entered lives in this browser and nowhere else. There
-      is no account and no server, so a cleared browser is a lost ledger —
-      export a copy somewhere you trust.
-    </p>
-    <div class="data-actions">
-      <button type="button" class="btn btn-quiet" id="export-json">
-        <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
-        Export JSON
-      </button>
-      <button type="button" class="btn btn-quiet" id="import-open">
-        <svg class="icon" aria-hidden="true"><use href="#i-upload"></use></svg>
-        Import a file
-      </button>
-      <button type="button" class="btn btn-quiet" data-action="edit-categories">
-        <svg class="icon" aria-hidden="true"><use href="#i-tag"></use></svg>
-        Categories
-      </button>
-      <button type="button" class="btn btn-danger-quiet" id="delete-all">
-        <svg class="icon" aria-hidden="true"><use href="#i-delete"></use></svg>
-        Delete all data
-      </button>
-    </div>
-    <p class="data-meta num" id="data-meta"></p>
-  </section>
+  <!-- ============================================================ fab -->
+  <button type="button" class="fab" id="fab" aria-label="Add a transaction">
+    <span class="fab-label">Add</span>
+  </button>
 
-  <footer class="colophon">
-    <p>Heft · money has mass · <span class="num" id="footer-count">0</span> expenses on this device</p>
-  </footer>
+  <!-- ======================================================= tab bar -->
+  <!-- Links, not a tablist. These are routes: they must be copyable,
+       openable in a new tab, and steppable with the back button. A tablist
+       would take all three away in exchange for arrow keys nobody expects on
+       a bottom bar. -->
+  <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <a class="tab" id="tab-records"    href="#/records"    data-tab="records"></a>
+    <a class="tab" id="tab-analysis"   href="#/analysis"   data-tab="analysis"></a>
+    <a class="tab" id="tab-budgets"    href="#/budgets"    data-tab="budgets"></a>
+    <a class="tab" id="tab-accounts"   href="#/accounts"   data-tab="accounts"></a>
+    <a class="tab" id="tab-categories" href="#/categories" data-tab="categories"></a>
+  </nav>
 </div>
 
-<!-- Undo. Announced politely, and focusable well before it times out. -->
-<div class="undo-dock" id="undo-dock" hidden>
-  <div class="undo-toast" role="status">
-    <p class="undo-text" id="undo-text"></p>
-    <button type="button" class="btn btn-undo" id="undo-button">
-      <svg class="icon" aria-hidden="true"><use href="#i-undo"></use></svg>
-      Undo
-    </button>
-    <span class="undo-progress" aria-hidden="true"><span id="undo-bar"></span></span>
+<!-- ============================================================= drawer -->
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" aria-label="Menu" aria-hidden="true" inert>
+  <div class="drawer-head">
+    <p class="drawer-title">Heft</p>
+    <p class="drawer-sub">Money has mass</p>
+    <button type="button" class="icon-btn drawer-close" id="drawer-close" aria-label="Close menu"></button>
   </div>
-</div>
 
-<!-- The single announcer for the whole app. -->
-<p class="visually-hidden" id="announcer" role="status" aria-live="polite"></p>
+  <nav class="drawer-nav">
+    <button type="button" class="drawer-item" id="open-prefs" aria-haspopup="dialog">
+      <span class="drawer-item-label">Preferences</span>
+    </button>
 
-<dialog class="dialog dialog-wide" id="import-dialog" aria-labelledby="import-title">
-  <form class="dialog-form" id="import-form" novalidate>
-    <header class="dialog-head">
-      <h2 id="import-title">Import a Heft file</h2>
-      <button type="button" class="icon-btn" id="import-close" aria-label="Close without importing">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
+    <p class="drawer-group">Management</p>
+    <button type="button" class="drawer-item" id="open-report" aria-haspopup="dialog">
+      <span class="drawer-item-label">Export Report</span>
+    </button>
+    <button type="button" class="drawer-item" id="open-backup" aria-haspopup="dialog">
+      <span class="drawer-item-label">Backup &amp; Restore</span>
+    </button>
+    <button type="button" class="drawer-item drawer-item-danger" id="open-danger" aria-haspopup="dialog">
+      <span class="drawer-item-label">Delete &amp; Reset</span>
+    </button>
+  </nav>
+
+  <!-- What is in this browser, in one line. The size is the number that
+       matters when storage runs out, so it is shown before it does. -->
+  <p class="drawer-note" id="drawer-note" role="status"></p>
+</aside>
+
+<!-- ======================================================== dialogs -->
+<dialog class="sheet" id="prefs-dialog" aria-labelledby="prefs-title">
+  <form method="dialog" class="sheet-form">
+    <header class="sheet-head">
+      <h2 id="prefs-title">Preferences</h2>
+      <button type="button" class="icon-btn" id="prefs-close" aria-label="Close"></button>
     </header>
 
-    <div class="dialog-body">
-      <div class="field">
-        <label class="field-label" for="import-file">Choose a file</label>
-        <input type="file" id="import-file" accept="application/json,.json">
-      </div>
+    <div class="sheet-body">
+      <fieldset class="opt">
+        <legend class="opt-label">Theme</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Theme" id="opt-theme">
+          <button type="button" class="opt-choice" role="radio" data-value="system" aria-checked="true" tabindex="0">System</button>
+          <button type="button" class="opt-choice" role="radio" data-value="light" aria-checked="false" tabindex="-1">Light</button>
+          <button type="button" class="opt-choice" role="radio" data-value="dark" aria-checked="false" tabindex="-1">Dark</button>
+        </div>
+      </fieldset>
 
-      <p class="form-error" id="import-error" role="alert"></p>
+      <fieldset class="opt">
+        <legend class="opt-label">Decimals in amounts</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Decimals in amounts" id="opt-decimals">
+          <button type="button" class="opt-choice" role="radio" data-value="yes" aria-checked="true" tabindex="0">Shown</button>
+          <button type="button" class="opt-choice" role="radio" data-value="no" aria-checked="false" tabindex="-1">Hidden</button>
+        </div>
+        <p class="opt-help">₹1,50,000.00 or ₹1,50,000. Grouping stays Indian either way.</p>
+      </fieldset>
 
-      <!-- Nothing is applied until this preview has been read and a mode picked. -->
-      <div class="import-preview" id="import-preview" hidden></div>
-
-      <fieldset class="mode-choice">
-        <legend class="field-label">What should happen</legend>
-        <label class="mode-option">
-          <input type="radio" name="import-mode" value="merge" checked disabled>
-          <span>
-            <strong>Merge</strong>
-            Keep everything you have and add what is new. Anything already here is left alone.
-          </span>
-        </label>
-        <label class="mode-option">
-          <input type="radio" name="import-mode" value="replace" disabled>
-          <span>
-            <strong>Replace</strong>
-            Throw away what is here and use the file instead. This cannot be undone.
-          </span>
-        </label>
+      <fieldset class="opt">
+        <legend class="opt-label">Heft view</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Heft view" id="opt-heft">
+          <button type="button" class="opt-choice" role="radio" data-value="off" aria-checked="true" tabindex="0">Off</button>
+          <button type="button" class="opt-choice" role="radio" data-value="on" aria-checked="false" tabindex="-1">On</button>
+        </div>
+        <p class="opt-help">
+          Off, a row's weight shows only in its spine and the boldness of its
+          amount. On, the full topographic mode returns: taller rows and larger
+          type for larger amounts.
+        </p>
       </fieldset>
     </div>
 
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-quiet" id="import-cancel">Cancel</button>
-      <button type="submit" class="btn btn-primary" id="import-apply" disabled>Import</button>
+    <footer class="sheet-foot">
+      <button type="submit" class="btn btn-primary" id="prefs-done">Done</button>
     </footer>
   </form>
 </dialog>
 
-<dialog class="dialog dialog-wide" id="category-dialog" aria-labelledby="category-title">
-  <div class="dialog-form">
-    <header class="dialog-head">
-      <h2 id="category-title">Categories</h2>
-      <button type="button" class="icon-btn" id="category-close" aria-label="Close categories">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
+<dialog class="sheet" id="display-dialog" aria-labelledby="display-title">
+  <form method="dialog" class="sheet-form">
+    <header class="sheet-head">
+      <h2 id="display-title">Display options</h2>
+      <button type="button" class="icon-btn" id="display-close" aria-label="Close"></button>
     </header>
 
-    <div class="dialog-body">
-      <ul class="category-list" id="category-rows" role="list"></ul>
-
-      <form class="category-add" id="category-add-form" novalidate>
-        <div class="field">
-          <label class="field-label" for="category-new-name">Add a category</label>
-          <input type="text" id="category-new-name" placeholder="Pets, Travel, Gifts…" autocomplete="off">
+    <div class="sheet-body">
+      <fieldset class="opt">
+        <legend class="opt-label">View mode</legend>
+        <div class="opt-choices opt-choices-stack" role="radiogroup" aria-label="View mode" id="opt-mode">
+          <button type="button" class="opt-choice" role="radio" data-value="daily" aria-checked="false" tabindex="-1">Daily</button>
+          <button type="button" class="opt-choice" role="radio" data-value="weekly" aria-checked="false" tabindex="-1">Weekly</button>
+          <button type="button" class="opt-choice" role="radio" data-value="monthly" aria-checked="true" tabindex="0">Monthly</button>
+          <button type="button" class="opt-choice" role="radio" data-value="3-month" aria-checked="false" tabindex="-1">3 months</button>
+          <button type="button" class="opt-choice" role="radio" data-value="6-month" aria-checked="false" tabindex="-1">6 months</button>
+          <button type="button" class="opt-choice" role="radio" data-value="yearly" aria-checked="false" tabindex="-1">Yearly</button>
         </div>
-        <div class="field">
-          <label class="field-label" for="category-new-colour">Colour</label>
-          <select id="category-new-colour"></select>
-        </div>
-        <button type="submit" class="btn btn-quiet">Add</button>
-      </form>
-      <p class="form-error" id="category-add-error" role="alert"></p>
+        <p class="opt-help">The view mode is part of the URL, so a period is linkable.</p>
+      </fieldset>
 
-      <p class="budget-hint">
-        Removing a category always asks what to do with its expenses first —
-        they are never left pointing at something that no longer exists.
-        “Other” stays, because it is where anything unassigned lands.
-      </p>
+      <fieldset class="opt">
+        <legend class="opt-label">Show total</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Show total" id="opt-total">
+          <button type="button" class="opt-choice" role="radio" data-value="on" aria-checked="true" tabindex="0">Shown</button>
+          <button type="button" class="opt-choice" role="radio" data-value="off" aria-checked="false" tabindex="-1">Hidden</button>
+        </div>
+        <p class="opt-help">
+          The third figure in the header, income minus expense for the period.
+        </p>
+      </fieldset>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Carry over</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Carry over" id="opt-carry">
+          <button type="button" class="opt-choice" role="radio" data-value="off" aria-checked="true" tabindex="0">Off</button>
+          <button type="button" class="opt-choice" role="radio" data-value="on" aria-checked="false" tabindex="-1">On</button>
+        </div>
+        <!-- One line, as the reference does it. Carry-over is not a display
+             toggle in the way the others are: it changes the total rather
+             than only whether it is shown, and the copy has to say so. -->
+        <p class="opt-help">
+          What is left over at the end of a period opens the next one, so the
+          total reads as money you actually have rather than a fresh start
+          every month.
+        </p>
+      </fieldset>
     </div>
 
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-primary" id="category-done">Done</button>
-    </footer>
-  </div>
-</dialog>
-
-<dialog class="dialog" id="danger-dialog" aria-labelledby="danger-title">
-  <form class="dialog-form" id="danger-form" novalidate>
-    <header class="dialog-head">
-      <h2 id="danger-title">Delete all data</h2>
-      <button type="button" class="icon-btn" id="danger-close" aria-label="Close without deleting">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
-    </header>
-    <div class="dialog-body">
-      <p class="danger-warning" id="danger-count"></p>
-      <p class="danger-note">
-        Your categories and budgets stay. Your expenses do not, and there is no
-        copy anywhere else. Export first if you might want them back.
-      </p>
-      <div class="field">
-        <label class="field-label" for="danger-input">Type DELETE to confirm</label>
-        <input type="text" id="danger-input" autocomplete="off" autocapitalize="characters"
-               spellcheck="false" aria-describedby="danger-count">
-      </div>
-    </div>
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-quiet" id="danger-cancel">Cancel</button>
-      <button type="submit" class="btn btn-danger" id="danger-confirm" disabled>Delete everything</button>
+    <footer class="sheet-foot">
+      <button type="submit" class="btn btn-primary">Done</button>
     </footer>
   </form>
 </dialog>
 
-<dialog class="dialog" id="budget-dialog" aria-labelledby="budget-title">
-  <form class="dialog-form" id="budget-form" novalidate>
-    <header class="dialog-head">
-      <h2 id="budget-title">Monthly budgets</h2>
-      <button type="button" class="icon-btn" id="budget-close" aria-label="Close without saving">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
-    </header>
-    <div class="dialog-body">
-      <div id="budget-fields"></div>
-      <p class="form-error" id="budget-form-error" role="alert"></p>
-      <p class="budget-hint" id="budget-hint">
-        Whole rupees, the same every month. Leave a category blank to leave it
-        untracked — that is different from a budget of zero, which means you
-        intend to spend nothing there.
-      </p>
-    </div>
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-quiet" id="budget-cancel">Cancel</button>
-      <button type="submit" class="btn btn-primary">Save budgets</button>
-    </footer>
-  </form>
-</dialog>
-
-<dialog class="dialog" id="help-dialog" aria-labelledby="help-title">
-  <div class="dialog-form">
-    <header class="dialog-head">
-      <h2 id="help-title">Keyboard shortcuts</h2>
-      <button type="button" class="icon-btn" id="help-close" aria-label="Close shortcuts">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
-    </header>
-    <div class="dialog-body">
-      <dl class="shortcuts">
-        <dt><kbd>/</kbd></dt>
-        <dd>Jump to the quick-add line</dd>
-        <dt><kbd>Enter</kbd></dt>
-        <dd>Add the expense you have typed</dd>
-        <dt><kbd>Ctrl</kbd> <kbd>Enter</kbd></dt>
-        <dd>Open the full form, keeping what you typed</dd>
-        <dt><kbd>N</kbd></dt>
-        <dd>Add an expense with the full form</dd>
-        <dt><kbd>Ctrl</kbd> <kbd>Z</kbd></dt>
-        <dd>Undo the delete you just made</dd>
-        <dt><kbd>?</kbd></dt>
-        <dd>Open this list</dd>
-        <dt><kbd>Esc</kbd></dt>
-        <dd>Close a dialog without saving</dd>
-      </dl>
-
-      <h3 class="help-subhead">What the quick-add line understands</h3>
-      <dl class="syntax">
-        <dt><code>250 chai</code></dt>
-        <dd>Amount anywhere in the line</dd>
-        <dt><code>1.2k rent</code> · <code>1.5l deposit</code></dt>
-        <dd>Thousands and lakhs</dd>
-        <dt><code>swiggy 480 yesterday</code></dt>
-        <dd>today, yesterday, <code>23 jan</code>, <code>2/3</code></dd>
-        <dt><code>480 food</code></dt>
-        <dd>A category name, which is taken out of the note</dd>
-        <dt><code>uber 120</code></dt>
-        <dd>A known shop or service, which stays in the note</dd>
-      </dl>
-    </div>
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-primary" id="help-done">Done</button>
-    </footer>
-  </div>
-</dialog>
-
-<dialog class="dialog" id="expense-dialog" aria-labelledby="expense-dialog-title">
-  <form method="dialog" class="dialog-form" id="expense-form">
-    <header class="dialog-head">
-      <h2 id="expense-dialog-title">Edit expense</h2>
-      <button type="button" class="icon-btn" id="expense-cancel" aria-label="Close without saving">
-        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
-      </button>
-    </header>
-
-    <div class="dialog-body">
-      <div class="field">
-        <label class="field-label" for="f-amount">Amount</label>
-        <div class="input-wrap">
-          <span class="input-prefix" aria-hidden="true">₹</span>
-          <input type="text" id="f-amount" name="amount" inputmode="decimal" autocomplete="off"
-                 required aria-describedby="f-amount-error">
-        </div>
-        <p class="field-error" id="f-amount-error"></p>
-      </div>
-
-      <div class="field-pair">
-        <div class="field">
-          <label class="field-label" for="f-date">Date</label>
-          <input type="date" id="f-date" name="date" required aria-describedby="f-date-error">
-          <p class="field-error" id="f-date-error"></p>
-        </div>
-        <div class="field">
-          <label class="field-label" for="f-category">Category</label>
-          <select id="f-category" name="categoryId"></select>
-        </div>
-      </div>
-
-      <div class="field">
-        <label class="field-label" for="f-note">Note</label>
-        <input type="text" id="f-note" name="note" autocomplete="off" placeholder="Optional">
-      </div>
-
-      <div class="field">
-        <span class="field-label" id="f-method-label">Payment method</span>
-        <div class="chips" role="radiogroup" aria-labelledby="f-method-label" id="f-methods">
-          <button type="button" class="chip" data-method="" role="radio" aria-checked="true">Unrecorded</button>
-          <button type="button" class="chip" data-method="cash" role="radio" aria-checked="false">Cash</button>
-          <button type="button" class="chip" data-method="upi" role="radio" aria-checked="false">UPI</button>
-          <button type="button" class="chip" data-method="card" role="radio" aria-checked="false">Card</button>
-        </div>
-      </div>
-    </div>
-
-    <footer class="dialog-foot">
-      <button type="button" class="btn btn-quiet" id="expense-cancel-2">Cancel</button>
-      <button type="submit" class="btn btn-primary" id="expense-save">Save changes</button>
-    </footer>
-  </form>
-</dialog>
-
-<!-- Row and day markup live here, not in JavaScript strings. -->
-<template id="tpl-budget">
-  <li class="budget-row">
-    <div class="budget-head">
-      <span class="budget-name">
-        <span class="cat-dot" aria-hidden="true"></span><span class="budget-label"></span>
+<!-- ====================================================== templates -->
+<!-- Rows are cloned from here once and reconciled thereafter. Nothing in the
+     ledger is ever built by assigning innerHTML. -->
+<template id="tpl-day">
+  <li class="day">
+    <h3 class="day-head">
+      <span class="day-when">
+        <span class="day-relative"></span>
+        <time class="day-date"></time>
       </span>
-      <span class="budget-figures num"></span>
-    </div>
-    <!-- Decorative: spent, budget, percentage and pace are all text above and below. -->
-    <div class="budget-track" aria-hidden="true">
-      <span class="budget-fill"></span>
-      <span class="budget-pace-mark"></span>
-    </div>
-    <p class="budget-status"></p>
+      <span class="day-net num">
+        <span class="day-net-text"></span>
+        <span class="visually-hidden day-net-word"></span>
+      </span>
+    </h3>
+    <ul class="day-rows" role="list"></ul>
   </li>
 </template>
 
+<template id="tpl-row">
+  <li class="row weighted">
+    <!-- The whole row is one button. A row that opens a detail sheet is a
+         single action, and splitting it into a clickable div plus two icon
+         buttons would put three targets where the user sees one. The
+         accessible name carries the full context, so it is never a bare
+         repeated "Edit". -->
+    <button type="button" class="row-open">
+      <span class="cat-chip row-chip" aria-hidden="true"></span>
+      <span class="row-body">
+        <span class="row-title"></span>
+        <span class="row-sub">
+          <span class="row-account"><span class="row-account-mark"></span><span class="row-account-name"></span></span>
+          <span class="row-note"></span>
+        </span>
+      </span>
+      <span class="row-amount num">
+        <span class="row-amount-text"></span>
+      </span>
+    </button>
+  </li>
+</template>
+
+<!-- Every chart on the Analysis tab is one of these. The summary is the
+     takeaway in a sentence, and it is part of the SVG's accessible name; the
+     table under it carries the same numbers for anyone who cannot see the
+     drawing. -->
 <template id="tpl-panel">
   <figure class="panel">
     <figcaption class="panel-head">
@@ -572,8 +585,7 @@
       <p class="panel-summary"></p>
     </figcaption>
     <div class="panel-body"></div>
-    <!-- The same numbers as the chart, for anyone who cannot see it.
-         The wrapper carries visually-hidden, not the table: a table will not
+    <!-- The wrapper carries visually-hidden, not the table: a table will not
          shrink below its min-content width, so hiding it directly leaves the
          page scrolling sideways. -->
     <div class="visually-hidden panel-table-wrap">
@@ -586,37 +598,579 @@
   </figure>
 </template>
 
-<template id="tpl-day">
-  <li class="day">
-    <h3 class="day-head">
-      <time class="day-date"></time>
-      <span class="day-total num"><span class="sym">₹</span><span class="day-total-digits"></span></span>
-    </h3>
-    <ul class="day-rows" role="list"></ul>
+<!-- A budget row. The bar is decorative: every number it encodes is written
+     out beside it, and the pace mark's meaning is in the status line. -->
+<template id="tpl-budget">
+  <li class="budget-row">
+    <button type="button" class="budget-open">
+      <span class="cat-chip budget-chip" aria-hidden="true"></span>
+      <span class="budget-main">
+        <span class="budget-line">
+          <span class="budget-name"></span>
+          <span class="budget-figures num">
+            <span class="budget-spent"></span>
+            <span class="budget-of"></span>
+          </span>
+        </span>
+        <span class="budget-track">
+          <span class="budget-fill"></span>
+          <span class="budget-pace" hidden></span>
+        </span>
+        <span class="budget-status"></span>
+        <span class="budget-projection"></span>
+      </span>
+    </button>
   </li>
 </template>
 
-<template id="tpl-row">
-  <li class="row weighted">
-    <div class="row-body">
-      <p class="row-note"></p>
-      <p class="row-meta">
-        <span class="cat"><span class="cat-dot" aria-hidden="true"></span><span class="cat-name"></span></span>
-        <span class="row-method"></span>
+<!-- An unbudgeted category: what it cost, and one control to give it a plan. -->
+<template id="tpl-unbudgeted">
+  <li class="budget-row budget-row-unset">
+    <button type="button" class="budget-open">
+      <span class="cat-chip budget-chip" aria-hidden="true"></span>
+      <span class="budget-main">
+        <span class="budget-line">
+          <span class="budget-name"></span>
+          <span class="budget-figures num"><span class="budget-spent"></span></span>
+        </span>
+      </span>
+      <span class="budget-set" aria-hidden="true">Set budget</span>
+    </button>
+  </li>
+</template>
+
+<template id="tpl-account">
+  <li class="account-card">
+    <div class="account-top">
+      <span class="cat-chip account-chip" aria-hidden="true"></span>
+      <div class="account-id">
+        <p class="account-name"></p>
+        <p class="account-type"></p>
+      </div>
+      <p class="account-balance num">
+        <span class="account-balance-text"></span>
+        <span class="visually-hidden account-balance-word"></span>
       </p>
     </div>
-    <p class="row-amount num"><span class="sym" aria-hidden="true">₹</span><span class="row-digits"></span></p>
-    <div class="row-actions">
-      <button type="button" class="icon-btn row-edit">
-        <svg class="icon" aria-hidden="true"><use href="#i-edit"></use></svg>
-      </button>
-      <button type="button" class="icon-btn row-delete">
-        <svg class="icon" aria-hidden="true"><use href="#i-delete"></use></svg>
-      </button>
+    <p class="account-opening"></p>
+    <div class="account-actions">
+      <button type="button" class="btn btn-quiet btn-small account-view"></button>
+      <button type="button" class="btn btn-quiet btn-small account-edit"></button>
+      <button type="button" class="btn btn-quiet btn-small account-archive"></button>
     </div>
   </li>
 </template>
 
-<script type="module" src="js/main.js"></script>
+<template id="tpl-category">
+  <li class="category-row">
+    <span class="cat-chip category-chip" aria-hidden="true"></span>
+    <span class="category-main">
+      <span class="category-name"></span>
+      <span class="category-count"></span>
+    </span>
+    <button type="button" class="icon-btn category-menu-open"></button>
+  </li>
+</template>
+
+<!-- ======================================================== undo bar -->
+<!-- Not a toast that steals focus, and not one that cannot be reached: it is
+     a real button in the tab order, announced politely, and it stays operable
+     right up to the moment the delete commits. -->
+<div class="undobar" id="undobar" hidden>
+  <p class="undobar-text" id="undo-text"></p>
+  <button type="button" class="btn btn-undo" id="undo-button">Undo</button>
+  <span class="undobar-clock" id="undo-clock" aria-hidden="true"></span>
+</div>
+
+<!-- ========================================================= dialogs -->
+<dialog class="sheet" id="detail-dialog" aria-labelledby="detail-title">
+  <div class="sheet-form">
+    <header class="sheet-head">
+      <h2 id="detail-title">Transaction</h2>
+      <button type="button" class="icon-btn" id="detail-close" aria-label="Close"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="detail-amount num" id="detail-amount"></p>
+      <dl class="detail-list" id="detail-list"></dl>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-danger" id="detail-delete">Delete</button>
+      <button type="button" class="btn btn-primary" id="detail-edit">Edit</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="filter-dialog" aria-labelledby="filter-title">
+  <form method="dialog" class="sheet-form">
+    <header class="sheet-head">
+      <h2 id="filter-title">Filter records</h2>
+      <button type="button" class="icon-btn" id="filter-close" aria-label="Close"></button>
+    </header>
+
+    <div class="sheet-body">
+      <fieldset class="opt">
+        <legend class="opt-label">Type</legend>
+        <div class="opt-checks opt-checks-row" id="filter-kinds">
+          <label class="check"><input type="checkbox" value="expense"><span>Expense</span></label>
+          <label class="check"><input type="checkbox" value="income"><span>Income</span></label>
+          <label class="check"><input type="checkbox" value="transfer"><span>Transfer</span></label>
+        </div>
+        <p class="opt-help">Nothing ticked means every type.</p>
+      </fieldset>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Categories</legend>
+        <div class="opt-checks" id="filter-categories"></div>
+      </fieldset>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Accounts</legend>
+        <div class="opt-checks" id="filter-accounts"></div>
+      </fieldset>
+
+      <div class="opt">
+        <label class="opt-label" for="filter-query">Search notes</label>
+        <input type="search" id="filter-query" autocomplete="off" placeholder="cocoa">
+      </div>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="filter-reset">Clear all</button>
+      <button type="submit" class="btn btn-primary">Show results</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="dialog" id="transaction-dialog" aria-labelledby="transaction-dialog-title">
+  <form method="dialog" class="dialog-form" id="transaction-form">
+    <header class="dialog-head">
+      <h2 id="transaction-dialog-title">Add expense</h2>
+      <button type="button" class="icon-btn" id="transaction-cancel" aria-label="Close without saving"></button>
+    </header>
+
+    <div class="dialog-body">
+      <!-- A real radio group: arrow keys move the selection, one stop in the
+           tab order, and the checked state is the accessible one. Not three
+           buttons dressed up to look like a segmented control. -->
+      <div class="field">
+        <span class="field-label" id="f-kind-label">Type</span>
+        <div class="segmented" role="radiogroup" aria-labelledby="f-kind-label" id="f-kinds">
+          <button type="button" class="seg" data-kind="expense" role="radio" aria-checked="true" tabindex="0">Expense</button>
+          <button type="button" class="seg" data-kind="income" role="radio" aria-checked="false" tabindex="-1">Income</button>
+          <button type="button" class="seg" data-kind="transfer" role="radio" aria-checked="false" tabindex="-1">Transfer</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="f-amount">Amount</label>
+        <div class="input-wrap">
+          <span class="input-prefix" aria-hidden="true">&#8377;</span>
+          <input type="text" id="f-amount" name="amount" inputmode="decimal" autocomplete="off"
+                 required aria-describedby="f-amount-error">
+        </div>
+        <p class="field-error" id="f-amount-error"></p>
+      </div>
+
+      <div class="field-pair">
+        <div class="field">
+          <label class="field-label" for="f-date">Date</label>
+          <input type="date" id="f-date" name="date" required aria-describedby="f-date-error">
+          <p class="field-error" id="f-date-error"></p>
+        </div>
+        <div class="field" id="f-category-field">
+          <label class="field-label" for="f-category">Category</label>
+          <select id="f-category" name="categoryId"></select>
+        </div>
+      </div>
+
+      <div class="field-pair">
+        <div class="field">
+          <label class="field-label" for="f-account" id="f-account-label">Account</label>
+          <select id="f-account" name="accountId"></select>
+        </div>
+        <!-- Transfers only: replaces the category field's job of saying where
+             the money went. -->
+        <div class="field" id="f-to-account-field" hidden>
+          <label class="field-label" for="f-to-account">To account</label>
+          <select id="f-to-account" name="toAccountId" aria-describedby="f-to-account-error"></select>
+          <p class="field-error" id="f-to-account-error"></p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="f-note">Note</label>
+        <input type="text" id="f-note" name="note" autocomplete="off" placeholder="Optional">
+      </div>
+    </div>
+
+    <footer class="dialog-foot">
+      <button type="button" class="btn btn-quiet" id="transaction-cancel-2">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="transaction-save">Add expense</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ============================================== budget / account / category -->
+
+<dialog class="sheet" id="budget-dialog" aria-labelledby="budget-dialog-title">
+  <form method="dialog" class="sheet-form" id="budget-form">
+    <header class="sheet-head">
+      <h2 id="budget-dialog-title">Set budget</h2>
+      <button type="button" class="icon-btn" id="budget-cancel" aria-label="Close without saving"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="sheet-lede" id="budget-for"></p>
+
+      <div class="field">
+        <label class="field-label" for="budget-amount">Monthly budget</label>
+        <div class="input-wrap">
+          <span class="input-prefix" aria-hidden="true">&#8377;</span>
+          <input type="text" id="budget-amount" inputmode="decimal" autocomplete="off"
+                 aria-describedby="budget-amount-error budget-amount-help">
+        </div>
+        <p class="field-error" id="budget-amount-error"></p>
+        <!-- Budgets are monthly, whatever period is on screen. Saying so is
+             what keeps a weekly view from looking like it has its own plan. -->
+        <p class="opt-help" id="budget-amount-help"></p>
+      </div>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-danger" id="budget-remove">Remove budget</button>
+      <button type="submit" class="btn btn-primary" id="budget-save">Save budget</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="sheet" id="account-dialog" aria-labelledby="account-dialog-title">
+  <form method="dialog" class="sheet-form" id="account-form">
+    <header class="sheet-head">
+      <h2 id="account-dialog-title">New account</h2>
+      <button type="button" class="icon-btn" id="account-cancel" aria-label="Close without saving"></button>
+    </header>
+
+    <div class="sheet-body">
+      <div class="field">
+        <label class="field-label" for="account-name">Name</label>
+        <input type="text" id="account-name" autocomplete="off" required
+               aria-describedby="account-name-error">
+        <p class="field-error" id="account-name-error"></p>
+      </div>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Type</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Account type" id="account-type">
+          <button type="button" class="opt-choice" role="radio" data-value="cash" aria-checked="true" tabindex="0">Cash</button>
+          <button type="button" class="opt-choice" role="radio" data-value="bank" aria-checked="false" tabindex="-1">Bank</button>
+          <button type="button" class="opt-choice" role="radio" data-value="card" aria-checked="false" tabindex="-1">Card</button>
+          <button type="button" class="opt-choice" role="radio" data-value="wallet" aria-checked="false" tabindex="-1">Wallet</button>
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <label class="field-label" for="account-opening">Opening balance</label>
+        <div class="input-wrap">
+          <span class="input-prefix" aria-hidden="true">&#8377;</span>
+          <input type="text" id="account-opening" inputmode="decimal" autocomplete="off"
+                 aria-describedby="account-opening-error account-opening-help">
+        </div>
+        <p class="field-error" id="account-opening-error"></p>
+        <!-- A balance is derived from this plus every transaction. Leaving it
+             at zero is what makes a migrated ledger read as deeply overdrawn. -->
+        <p class="opt-help" id="account-opening-help">
+          What was in this account before the first record. A card with a bill
+          outstanding starts negative &mdash; write it as &minus;4000.
+        </p>
+      </div>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Icon</legend>
+        <div class="glyph-grid" role="radiogroup" aria-label="Account icon" id="account-icon"></div>
+      </fieldset>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Colour</legend>
+        <div class="swatch-grid" role="radiogroup" aria-label="Account colour" id="account-color"></div>
+      </fieldset>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-danger" id="account-delete">Delete</button>
+      <button type="submit" class="btn btn-primary" id="account-save">Save account</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog class="sheet" id="category-dialog" aria-labelledby="category-dialog-title">
+  <form method="dialog" class="sheet-form" id="category-form">
+    <header class="sheet-head">
+      <h2 id="category-dialog-title">New category</h2>
+      <button type="button" class="icon-btn" id="category-cancel" aria-label="Close without saving"></button>
+    </header>
+
+    <div class="sheet-body">
+      <fieldset class="opt">
+        <legend class="opt-label">Kind</legend>
+        <div class="opt-choices" role="radiogroup" aria-label="Kind" id="category-kind">
+          <button type="button" class="opt-choice" role="radio" data-value="expense" aria-checked="true" tabindex="0">Expense</button>
+          <button type="button" class="opt-choice" role="radio" data-value="income" aria-checked="false" tabindex="-1">Income</button>
+        </div>
+        <!-- Not merely disabled: the reason is the point, and a control that
+             refuses without saying why reads as a bug. -->
+        <p class="opt-help" id="category-kind-help">
+          Chosen once, and fixed afterwards. Expense and income are counted
+          separately in every total, chart and budget, so switching a category
+          that already has records would rewrite history rather than reclassify
+          it. To move records, make the category you want and merge into it.
+        </p>
+      </fieldset>
+
+      <div class="field">
+        <label class="field-label" for="category-name">Name</label>
+        <input type="text" id="category-name" autocomplete="off" required
+               aria-describedby="category-name-error">
+        <p class="field-error" id="category-name-error"></p>
+      </div>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Icon</legend>
+        <div class="glyph-grid" role="radiogroup" aria-label="Category icon" id="category-icon"></div>
+      </fieldset>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Colour</legend>
+        <div class="swatch-grid" role="radiogroup" aria-label="Category colour" id="category-color"></div>
+      </fieldset>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-danger" id="category-delete">Delete</button>
+      <button type="submit" class="btn btn-primary" id="category-save">Save category</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- The per-row menu, as a real sheet rather than a floating popup: it traps
+     focus, closes on Escape, and returns focus to the button that opened it,
+     none of which a hand-rolled dropdown gets for free. -->
+<dialog class="sheet sheet-menu" id="category-menu" aria-labelledby="category-menu-title">
+  <div class="sheet-form">
+    <header class="sheet-head">
+      <h2 id="category-menu-title">Category</h2>
+      <button type="button" class="icon-btn" id="category-menu-close" aria-label="Close"></button>
+    </header>
+    <div class="sheet-body">
+      <nav class="menu-list" id="category-menu-list"></nav>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="merge-dialog" aria-labelledby="merge-title">
+  <form method="dialog" class="sheet-form" id="merge-form">
+    <header class="sheet-head">
+      <h2 id="merge-title">Merge category</h2>
+      <button type="button" class="icon-btn" id="merge-cancel" aria-label="Close without merging"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="sheet-lede" id="merge-lede"></p>
+
+      <div class="field">
+        <label class="field-label" for="merge-target">Merge into</label>
+        <select id="merge-target" aria-describedby="merge-help"></select>
+        <p class="opt-help" id="merge-help"></p>
+      </div>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="merge-abort">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="merge-confirm">Merge</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- One dialog for both never-orphan rules: a category or an account with
+     history behind it cannot go without the caller saying, explicitly, what
+     happens to the records that point at it. -->
+<dialog class="sheet" id="reassign-dialog" aria-labelledby="reassign-title">
+  <form method="dialog" class="sheet-form" id="reassign-form">
+    <header class="sheet-head">
+      <h2 id="reassign-title">Delete</h2>
+      <button type="button" class="icon-btn" id="reassign-cancel" aria-label="Close without deleting"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="sheet-lede" id="reassign-lede"></p>
+
+      <fieldset class="opt">
+        <legend class="opt-label">What happens to them</legend>
+        <div class="opt-choices opt-choices-stack" role="radiogroup"
+             aria-label="What happens to the records" id="reassign-mode">
+          <button type="button" class="opt-choice" role="radio" data-value="reassign" aria-checked="true" tabindex="0">Move them</button>
+          <button type="button" class="opt-choice" role="radio" data-value="delete" aria-checked="false" tabindex="-1">Delete them too</button>
+        </div>
+      </fieldset>
+
+      <div class="field" id="reassign-target-field">
+        <label class="field-label" for="reassign-target">Move them to</label>
+        <select id="reassign-target"></select>
+      </div>
+
+      <p class="danger-note" id="reassign-warning" hidden></p>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="reassign-abort">Cancel</button>
+      <button type="submit" class="btn btn-danger" id="reassign-confirm">Delete</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ==================================================== export report -->
+<!-- Two formats, two jobs, and the sheet says which is which. The JSON file
+     is the one that comes back; the CSV files are the ones that go into a
+     spreadsheet and do not. Offering them as one undifferentiated "export"
+     is how someone ends up with a CSV they expected to be able to restore. -->
+<dialog class="sheet" id="report-dialog" aria-labelledby="report-title">
+  <form method="dialog" class="sheet-form" id="report-form">
+    <header class="sheet-head">
+      <h2 id="report-title">Export Report</h2>
+      <button type="button" class="icon-btn" id="report-close" aria-label="Close"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="sheet-lede" id="report-lede"></p>
+
+      <fieldset class="opt">
+        <legend class="opt-label">Format</legend>
+        <div class="opt-choices opt-choices-stack" role="radiogroup"
+             aria-label="Export format" id="report-format">
+          <button type="button" class="opt-choice" role="radio" data-value="json"
+                  aria-checked="true" tabindex="0">Backup &middot; JSON</button>
+          <button type="button" class="opt-choice" role="radio" data-value="records"
+                  aria-checked="false" tabindex="-1">Records &middot; CSV</button>
+          <button type="button" class="opt-choice" role="radio" data-value="budgets"
+                  aria-checked="false" tabindex="-1">Budgets &middot; CSV</button>
+        </div>
+        <p class="opt-help" id="report-help"></p>
+      </fieldset>
+
+      <p class="preview-head" id="report-contents"></p>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="report-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="report-download">Download</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- =================================================== backup & restore -->
+<dialog class="sheet" id="backup-dialog" aria-labelledby="backup-title">
+  <form method="dialog" class="sheet-form" id="backup-form">
+    <header class="sheet-head">
+      <h2 id="backup-title">Backup &amp; Restore</h2>
+      <button type="button" class="icon-btn" id="backup-close" aria-label="Close"></button>
+    </header>
+
+    <div class="sheet-body">
+      <p class="sheet-lede">
+        Restore from a Heft backup. The file is read and checked first, and
+        nothing is applied until you have seen exactly what it would do.
+      </p>
+      <!-- On its own line rather than inline in the sentence above. WCAG
+           exempts a link sitting inside a run of text from the target-size
+           floor, but the exemption exists for prose links, and this is a
+           control that opens another sheet. -->
+      <button type="button" class="btn btn-quiet" id="backup-to-report"
+              aria-haspopup="dialog">
+        Make a backup instead
+      </button>
+
+      <div class="field">
+        <label class="field-label" for="backup-file">Backup file</label>
+        <input type="file" id="backup-file" accept="application/json,.json"
+               aria-describedby="backup-error">
+        <p class="field-error" id="backup-error" role="alert"></p>
+      </div>
+
+      <!-- Nothing below this point exists until a file has been read and has
+           validated. An empty preview with a live Restore button is how an
+           import gets applied before anyone has read what it does. -->
+      <div id="backup-preview" hidden>
+        <fieldset class="opt">
+          <legend class="opt-label">What to do with it</legend>
+          <div class="opt-choices opt-choices-stack" role="radiogroup"
+               aria-label="Restore mode" id="backup-mode">
+            <button type="button" class="opt-choice" role="radio" data-value="merge"
+                    aria-checked="true" tabindex="0">Merge</button>
+            <button type="button" class="opt-choice" role="radio" data-value="replace"
+                    aria-checked="false" tabindex="-1">Replace</button>
+          </div>
+          <p class="opt-help" id="backup-mode-help"></p>
+        </fieldset>
+
+        <div class="preview" id="backup-summary" aria-live="polite"></div>
+
+        <p class="danger-note" id="backup-warning" hidden></p>
+      </div>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="backup-cancel">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="backup-apply" disabled>Restore</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ====================================================== delete & reset -->
+<!-- Two different things, never one button. Emptying the ledger and throwing
+     away the accounts, categories, plan and preferences you built around it
+     are not degrees of the same action, and the confirmation word differs so
+     that having typed one does not carry you through the other. -->
+<dialog class="sheet" id="danger-dialog" aria-labelledby="danger-title">
+  <form method="dialog" class="sheet-form" id="danger-form">
+    <header class="sheet-head">
+      <h2 id="danger-title">Delete &amp; Reset</h2>
+      <button type="button" class="icon-btn" id="danger-close" aria-label="Close"></button>
+    </header>
+
+    <div class="sheet-body">
+      <fieldset class="opt">
+        <legend class="opt-label">What to delete</legend>
+        <div class="opt-choices opt-choices-stack" role="radiogroup"
+             aria-label="What to delete" id="danger-scope">
+          <button type="button" class="opt-choice" role="radio" data-value="transactions"
+                  aria-checked="true" tabindex="0">Transactions only</button>
+          <button type="button" class="opt-choice" role="radio" data-value="everything"
+                  aria-checked="false" tabindex="-1">Everything</button>
+        </div>
+      </fieldset>
+
+      <p class="danger-note" id="danger-consequence"></p>
+
+      <div class="field">
+        <label class="field-label" for="danger-input" id="danger-prompt"></label>
+        <input type="text" id="danger-input" autocomplete="off" spellcheck="false"
+               aria-describedby="danger-input-help">
+        <p class="opt-help" id="danger-input-help">
+          Typed in full, in capitals. This one cannot be undone.
+        </p>
+      </div>
+    </div>
+
+    <footer class="sheet-foot sheet-foot-split">
+      <button type="button" class="btn btn-quiet" id="danger-cancel">Cancel</button>
+      <button type="submit" class="btn btn-danger" id="danger-confirm" disabled>Delete</button>
+    </footer>
+  </form>
+</dialog>
+
+<p class="visually-hidden" id="announcer" role="status" aria-live="polite"></p>
+
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

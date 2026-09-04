@@ -5,3 +5,23 @@ Thumbs.db
 
 # Editor/agent local config
 .claude/
+
+# Scratch and scaffolding.
+#
+# This section is load-bearing, not tidiness. The Pages workflow publishes to a
+# public URL, and although it now publishes an explicit allowlist rather than
+# the repo root, a scratch file is still a file someone can commit by accident
+# and then reference by accident. Anything that exists to help build the thing,
+# rather than being the thing, belongs here.
+#
+# The specific mistake this is written against: a screenshot rig that seeded
+# localStorage was left in .audit/, was not ignored, and would have shipped to
+# the live site where loading it would have wiped a visitor's ledger.
+.audit/
+.scratch/
+scratch/
+tmp/
+_site/
+*.local
+*.local.*
+*.tmp

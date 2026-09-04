@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heft — icon silhouette test</title>
+<link rel="stylesheet" href="../css/reset.css">
+<link rel="stylesheet" href="../css/tokens.css">
+<style>
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); padding: 1.5rem; }
+  h1 { font-size: 1.25rem; margin-block-end: .25rem; }
+  p.lede { color: var(--ink-2); max-inline-size: 46rem; margin-block-end: 1.5rem; font-size: .9rem; line-height: 1.5; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin-block: 1.5rem .75rem; }
+  .grid { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .cell { text-align: center; inline-size: 5.5rem; }
+  .cell span { display: block; font-size: .65rem; color: var(--ink-3); margin-block-start: .35rem; word-break: break-word; }
+  /* The whole point of the sheet: judge the set with hue removed. */
+  .grey { filter: grayscale(1); }
+  .disc { inline-size: 40px; block-size: 40px; border-radius: 50%; display: grid; place-items: center; margin-inline: auto; background: var(--chip); color: var(--cat-glyph); }
+  svg { inline-size: 23px; block-size: 23px; }
+  #out { margin-block-start: 1rem; font-size: .85rem; line-height: 1.6; }
+  #out b { font-variant-numeric: tabular-nums; }
+  .pass { color: var(--money-in); font-weight: 700; }
+  .fail { color: var(--money-out); font-weight: 700; }
+  table { border-collapse: collapse; margin-block-start: .75rem; font-size: .8rem; }
+  td, th { padding: .2rem .6rem; border-bottom: 1px solid var(--rule); text-align: start; }
+</style>
+</head>
+<body>
+
+<h1>Icon silhouette test</h1>
+<p class="lede">
+  The reference app gives Cab/Auto, Car and Fuel three near-identical car
+  glyphs, which is unreadable at a glance and useless to anyone who cannot
+  separate the hues. This sheet renders the whole set desaturated at 40&nbsp;px,
+  rasterises each glyph, and compares every pair by overlap. Anything above the
+  threshold is too similar in silhouette and needs redrawing — colour is not
+  allowed to be what tells two icons apart.
+</p>
+
+<h2>The set, desaturated</h2>
+<div class="grid grey" id="grid"></div>
+
+<h2>Pairwise overlap</h2>
+<div id="out">Measuring…</div>
+
+<script type="module">
+import { ICONS, ICON_NAMES } from '../js/lib/icons.js';
+import { icon } from '../js/ui/icon.js';
+
+/* Tab glyphs are chrome, not category marks; they are never shown alongside
+   the category set, so they are not part of this comparison. */
+const NAMES = ICON_NAMES.filter((n) => !n.startsWith('tab-'));
+
+const grid = document.getElementById('grid');
+for (const [i, name] of NAMES.entries()) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const disc = document.createElement('div');
+  disc.className = 'disc';
+  disc.style.setProperty('--chip', `var(--cat-${(i % 10) + 1})`);
+  disc.append(icon(name));
+  const label = document.createElement('span');
+  label.textContent = name;
+  cell.append(disc, label);
+  grid.append(cell);
+}
+
+/** Rasterise one glyph to a binary occupancy grid at N×N. */
+const N = 48;
+async function raster(name) {
+  const svg = icon(name);
+  svg.setAttribute('width', N);
+  svg.setAttribute('height', N);
+  svg.setAttribute('stroke', '#000');
+  const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.width = N; img.height = N;
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = new OffscreenCanvas(N, N);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, N, N);
+    const { data } = ctx.getImageData(0, 0, N, N);
+    const bits = new Uint8Array(N * N);
+    for (let p = 0; p < N * N; p += 1) bits[p] = data[p * 4 + 3] > 40 ? 1 : 0;
+    return bits;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** Intersection over union: 1.0 is identical, 0 is no shared ink at all. */
+function iou(a, b) {
+  let inter = 0; let union = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] && b[i]) inter += 1;
+    if (a[i] || b[i]) union += 1;
+  }
+  return union === 0 ? 0 : inter / union;
+}
+
+const THRESHOLD = 0.62;
+
+const bits = new Map();
+for (const n of NAMES) bits.set(n, await raster(n));
+
+const pairs = [];
+for (let i = 0; i < NAMES.length; i += 1) {
+  for (let j = i + 1; j < NAMES.length; j += 1) {
+    pairs.push({ a: NAMES[i], b: NAMES[j], score: iou(bits.get(NAMES[i]), bits.get(NAMES[j])) });
+  }
+}
+pairs.sort((x, y) => y.score - x.score);
+
+const over = pairs.filter((p) => p.score >= THRESHOLD);
+const out = document.getElementById('out');
+const rows = pairs.slice(0, 12).map((p) =>
+  `<tr><td>${p.a}</td><td>${p.b}</td><td><b>${p.score.toFixed(3)}</b></td></tr>`).join('');
+
+out.innerHTML = `
+  <p>${NAMES.length} glyphs, ${pairs.length} pairs, threshold ${THRESHOLD}.
+  <span class="${over.length ? 'fail' : 'pass'}">${over.length ? `${over.length} PAIR(S) TOO SIMILAR` : 'ALL PAIRS DISTINGUISHABLE'}</span></p>
+  <p>The three the reference confuses:
+  cab/car <b>${iou(bits.get('cab'), bits.get('car')).toFixed(3)}</b>,
+  cab/fuel <b>${iou(bits.get('cab'), bits.get('fuel')).toFixed(3)}</b>,
+  car/fuel <b>${iou(bits.get('car'), bits.get('fuel')).toFixed(3)}</b>.</p>
+  <table><thead><tr><th>A</th><th>B</th><th>overlap</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+globalThis.__iconResult = {
+  count: NAMES.length,
+  worst: pairs.slice(0, 8).map((p) => [p.a, p.b, Number(p.score.toFixed(3))]),
+  over: over.map((p) => [p.a, p.b, Number(p.score.toFixed(3))]),
+  pass: over.length === 0,
+};
+</script>
+</body>
+</html>

@@ -16,12 +16,17 @@
  *   - an *account* is a money account — Cash, Bank, Card, Wallet. Its balance
  *     is DERIVED from its opening balance plus its transactions. There is no
  *     balance field, and nothing increments one in place.
+ *   - a *budget* belongs to a month and a category, not to the category. v2
+ *     hung one `budgetPaise` off `Category`, which meant the same figure
+ *     applied to every month that had ever existed and to every month still to
+ *     come. v3 moves it into `budgets['YYYY-MM'][categoryId]`, where an absent
+ *     entry means *untracked* and is not the same fact as a budget of zero.
  */
 
-import { isValid } from './dates.js';
+import { isValid, monthKey, today as todayISO } from './dates.js';
 
 export const STORAGE_KEY = 'heft:v1';
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const ACCOUNT_TYPES = Object.freeze(['bank', 'cash', 'card', 'wallet']);
 export const TRANSACTION_KINDS = Object.freeze(['transaction', 'transfer']);
@@ -37,25 +42,25 @@ export const PAYMENT_METHODS = Object.freeze(['cash', 'upi', 'card']);
  * colorToken indexes the colourblind-safe palette in tokens.css.
  */
 export const SEED_CATEGORIES = Object.freeze([
-  { id: 'food', name: 'Food & Dining', kind: 'expense', colorToken: 'cat-1', budgetPaise: null, icon: 'bowl', archived: false },
-  { id: 'groceries', name: 'Groceries', kind: 'expense', colorToken: 'cat-2', budgetPaise: null, icon: 'basket', archived: false },
-  { id: 'transport', name: 'Transport', kind: 'expense', colorToken: 'cat-3', budgetPaise: null, icon: 'route', archived: false },
-  { id: 'rent', name: 'Rent & Bills', kind: 'expense', colorToken: 'cat-4', budgetPaise: null, icon: 'roof', archived: false },
-  { id: 'shopping', name: 'Shopping', kind: 'expense', colorToken: 'cat-5', budgetPaise: null, icon: 'tag', archived: false },
-  { id: 'health', name: 'Health', kind: 'expense', colorToken: 'cat-6', budgetPaise: null, icon: 'pulse', archived: false },
-  { id: 'entertainment', name: 'Entertainment', kind: 'expense', colorToken: 'cat-7', budgetPaise: null, icon: 'ticket', archived: false },
-  { id: 'education', name: 'Education', kind: 'expense', colorToken: 'cat-8', budgetPaise: null, icon: 'book', archived: false },
-  { id: 'other', name: 'Other', kind: 'expense', colorToken: 'cat-neutral', budgetPaise: null, icon: 'dot', archived: false },
+  { id: 'food', name: 'Food & Dining', kind: 'expense', colorToken: 'cat-1', icon: 'food', archived: false },
+  { id: 'groceries', name: 'Groceries', kind: 'expense', colorToken: 'cat-2', icon: 'groceries', archived: false },
+  { id: 'transport', name: 'Transport', kind: 'expense', colorToken: 'cat-3', icon: 'transport', archived: false },
+  { id: 'rent', name: 'Rent & Bills', kind: 'expense', colorToken: 'cat-4', icon: 'rent', archived: false },
+  { id: 'shopping', name: 'Shopping', kind: 'expense', colorToken: 'cat-5', icon: 'shopping', archived: false },
+  { id: 'health', name: 'Health', kind: 'expense', colorToken: 'cat-6', icon: 'health', archived: false },
+  { id: 'entertainment', name: 'Entertainment', kind: 'expense', colorToken: 'cat-7', icon: 'entertainment', archived: false },
+  { id: 'education', name: 'Education', kind: 'expense', colorToken: 'cat-8', icon: 'education', archived: false },
+  { id: 'other', name: 'Other', kind: 'expense', colorToken: 'cat-neutral', icon: 'other', archived: false },
 ]);
 
 /** Income has its own category set; an income category is never an expense one. */
 export const SEED_INCOME_CATEGORIES = Object.freeze([
-  { id: 'salary', name: 'Salary', kind: 'income', colorToken: 'inc-1', budgetPaise: null, icon: 'wallet', archived: false },
-  { id: 'refunds', name: 'Refunds', kind: 'income', colorToken: 'inc-2', budgetPaise: null, icon: 'undo', archived: false },
-  { id: 'returns', name: 'Returns', kind: 'income', colorToken: 'inc-3', budgetPaise: null, icon: 'chart', archived: false },
-  { id: 'interest-dividends', name: 'Interest & Dividends', kind: 'income', colorToken: 'inc-4', budgetPaise: null, icon: 'percent', archived: false },
-  { id: 'gifts', name: 'Gifts', kind: 'income', colorToken: 'inc-5', budgetPaise: null, icon: 'gift', archived: false },
-  { id: 'other-income', name: 'Other Income', kind: 'income', colorToken: 'cat-neutral', budgetPaise: null, icon: 'dot', archived: false },
+  { id: 'salary', name: 'Salary', kind: 'income', colorToken: 'cat-5', icon: 'salary', archived: false },
+  { id: 'refunds', name: 'Refunds', kind: 'income', colorToken: 'cat-6', icon: 'refunds', archived: false },
+  { id: 'returns', name: 'Returns', kind: 'income', colorToken: 'cat-7', icon: 'returns', archived: false },
+  { id: 'interest-dividends', name: 'Interest & Dividends', kind: 'income', colorToken: 'cat-4', icon: 'interest', archived: false },
+  { id: 'gifts', name: 'Gifts', kind: 'income', colorToken: 'cat-9', icon: 'gifts', archived: false },
+  { id: 'other-income', name: 'Other Income', kind: 'income', colorToken: 'cat-neutral', icon: 'other', archived: false },
 ]);
 
 export const SEED_ACCOUNTS = Object.freeze([
@@ -77,17 +82,22 @@ export function defaultState() {
       ...SEED_CATEGORIES.map((c) => ({ ...c })),
       ...SEED_INCOME_CATEGORIES.map((c) => ({ ...c })),
     ],
+    /** 'YYYY-MM' -> categoryId -> paise. An absent key is untracked, not zero. */
+    budgets: {},
     settings: {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       theme: 'system',
       weekStartsOn: 1,
       viewMode: 'monthly',
       showTotal: true,
+      showDecimals: true,
       carryOver: false,
       defaultAccountId: 'cash',
       defaultExpenseCategoryId: EXPENSE_SINK_ID,
       defaultIncomeCategoryId: INCOME_SINK_ID,
-      heftView: true,
+      // Uniform rows are the default: they scan better down a long ledger.
+      // The topographic mode is opt-in, from Preferences.
+      heftView: false,
     },
   };
 }
@@ -176,16 +186,46 @@ export function validateTransaction(raw, ctx) {
 export function validateCategory(raw, index) {
   if (!raw || typeof raw !== 'object') return null;
   if (!isNonEmptyString(raw.id) || !isNonEmptyString(raw.name)) return null;
-  const budget = raw.budgetPaise;
+  // No budget field: a budget belongs to a month, and lives in `budgets`.
   return {
     id: raw.id,
     name: raw.name,
     kind: CATEGORY_KINDS.includes(raw.kind) ? raw.kind : 'expense',
     colorToken: isNonEmptyString(raw.colorToken) ? raw.colorToken : `cat-${(index % 8) + 1}`,
-    budgetPaise: Number.isSafeInteger(budget) && budget >= 0 ? budget : null,
-    icon: isNonEmptyString(raw.icon) ? raw.icon : 'dot',
+    icon: isNonEmptyString(raw.icon) ? raw.icon : 'other',
     archived: raw.archived === true,
   };
+}
+
+const MONTH_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/**
+ * Clean the budgets map: real month keys, real category ids, non-negative
+ * integer paise.
+ *
+ * A budget of zero is kept — "I plan to spend nothing on this" is a real
+ * intention and is not the same as not tracking the category at all, which is
+ * the absence of the key. A month left with no entries is dropped rather than
+ * stored as `{}`, so "is anything budgeted here" stays a simple question.
+ *
+ * @param {unknown} raw
+ * @param {Set<string>} categoryIds ids that still exist
+ */
+export function validateBudgets(raw, categoryIds) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, entries] of Object.entries(raw)) {
+    if (!MONTH_KEY_RE.test(key)) continue;
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+    const month = {};
+    for (const [categoryId, paise] of Object.entries(entries)) {
+      if (!categoryIds.has(categoryId)) continue;
+      if (!Number.isSafeInteger(paise) || paise < 0) continue;
+      month[categoryId] = paise;
+    }
+    if (Object.keys(month).length) out[key] = month;
+  }
+  return out;
 }
 
 /**
@@ -309,10 +349,15 @@ export const makeAccountId = (name, existing = []) => makeSlugId(name, existing,
  * v0 is the shape this app would have had if it had been written carelessly:
  * rupees as floats, category by name, no createdAt, no version field. v1 is
  * the shipped expenses-only schema. v2 adds accounts, income and transfers.
+ * v3 moves budgets off the category and onto the month.
+ *
+ * `today` is passed rather than read, because v2 -> v3 has to decide *which*
+ * month inherits an old category budget and that must be reproducible in a
+ * test.
  *
  * @returns {{ok: true, data: object} | {ok: false, reason: string}}
  */
-export function migrate(input) {
+export function migrate(input, { today = null } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, reason: 'not-an-object' };
   }
@@ -327,6 +372,7 @@ export function migrate(input) {
   let data = input;
   if (version === 0) data = migrateV0toV1(data);
   if (version <= 1) data = migrateV1toV2(data);
+  if (version <= 2) data = migrateV2toV3(data, today);
 
   return { ok: true, data: normalise(data) };
 }
@@ -418,13 +464,54 @@ export function migrateV1toV2(v1) {
       viewMode: v1Settings.viewMode ?? 'monthly',
       showTotal: v1Settings.showTotal ?? true,
       carryOver: v1Settings.carryOver ?? false,
-      heftView: v1Settings.heftView ?? true,
+      heftView: v1Settings.heftView ?? false,
       defaultAccountId: 'cash',
       defaultExpenseCategoryId: expenseIds.has(defaultCategoryId)
         ? defaultCategoryId
         : EXPENSE_SINK_ID,
       defaultIncomeCategoryId: incomeIdMap.get(INCOME_SINK_ID) ?? INCOME_SINK_ID,
     },
+  };
+}
+
+/**
+ * v2 -> v3. A category's single budget becomes a budget for one month.
+ *
+ * The old field applied to every month there had ever been and every month
+ * still to come. Writing it into all of them would invent a history the user
+ * never set — a budget they added last week would suddenly have been in force
+ * since 2019, and last year's "over budget" would be a fact about this week's
+ * decision. So it lands in the current month only, which is the one month it
+ * was demonstrably about, and every earlier month is left honestly untracked.
+ *
+ * Nothing else changes: no amount, date, category, account or transaction is
+ * touched.
+ */
+export function migrateV2toV3(v2, today = null) {
+  const key = monthKey(today ?? todayISO());
+  const categories = Array.isArray(v2.categories) ? v2.categories : [];
+
+  const current = {};
+  for (const c of categories) {
+    const paise = c?.budgetPaise;
+    // A category that was never budgeted stays untracked rather than becoming
+    // a budget of zero, which would read as "I planned to spend nothing".
+    if (Number.isSafeInteger(paise) && paise >= 0 && (c.kind ?? 'expense') === 'expense') {
+      current[c.id] = paise;
+    }
+  }
+
+  const budgets = { ...(v2.budgets ?? {}) };
+  if (Object.keys(current).length) budgets[key] = { ...current, ...(budgets[key] ?? {}) };
+
+  return {
+    ...v2,
+    schemaVersion: 3,
+    // The field goes, rather than lingering as a second place a budget could
+    // be read from. Two sources of truth for one number is how they diverge.
+    categories: categories.map(({ budgetPaise, ...rest }) => rest),
+    budgets,
+    settings: { ...(v2.settings ?? {}), schemaVersion: 3 },
   };
 }
 
@@ -477,8 +564,18 @@ export function normalise(input) {
   }
   settings.schemaVersion = CURRENT_SCHEMA_VERSION;
 
+  // Budgets are scoped to categories that still exist: a budget pointing at a
+  // deleted category would be money planned against nothing, and would show up
+  // in the "budgeted" total without ever appearing as a row.
+  const budgets = validateBudgets(input.budgets, new Set(categories.map((c) => c.id)));
+
   return {
-    schemaVersion: CURRENT_SCHEMA_VERSION, transactions, accounts, categories, settings,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    transactions,
+    accounts,
+    categories,
+    budgets,
+    settings,
   };
 }
 
@@ -487,7 +584,7 @@ export function normalise(input) {
  * Malformed JSON falls back to defaults instead of throwing.
  * @returns {{state: object, ok: boolean, reason: string|null}}
  */
-export function parseState(text) {
+export function parseState(text, options = {}) {
   if (text === null || text === undefined || text === '') {
     return { state: defaultState(), ok: true, reason: null };
   }
@@ -497,7 +594,7 @@ export function parseState(text) {
   } catch {
     return { state: defaultState(), ok: false, reason: 'malformed-json' };
   }
-  const result = migrate(parsed);
+  const result = migrate(parsed, options);
   if (!result.ok) return { state: defaultState(), ok: false, reason: result.reason };
   return { state: result.data, ok: true, reason: null };
 }
@@ -505,14 +602,14 @@ export function parseState(text) {
 /* ------------------------------------------------------------ persistence */
 
 /** Read state from a Storage-like backend. Never throws. */
-export function loadState(backend, key = STORAGE_KEY) {
+export function loadState(backend, key = STORAGE_KEY, options = {}) {
   let text = null;
   try {
     text = backend.getItem(key);
   } catch {
     return { state: defaultState(), ok: false, reason: 'unreadable' };
   }
-  return parseState(text);
+  return parseState(text, options);
 }
 
 /**

@@ -1,0 +1,445 @@
+/**
+ * analysis.css — the Analysis tab.
+ *
+ * The charts are SVG, so nearly everything here is either type or the two
+ * colours a mark is allowed to take. Three rules govern it:
+ *
+ * 1. No mark carries meaning by colour alone. The bars are labelled, the
+ *    slices are named in the list beneath the ring with the same swatch, and
+ *    the net view pairs every hue with a sign.
+ * 2. Slice fills come from `--slice`, set per row in JavaScript as one
+ *    `color-mix` — the same value on the arc and on its row, so ring and list
+ *    can be matched by eye even where the hue cannot be told apart.
+ * 3. All motion is a draw-in, and all of it stops under reduced motion.
+ */
+
+@layer analysis {
+
+  /* ------------------------------------------------------ the overview -- */
+
+  .overview {
+    padding-block: var(--space-4) var(--space-2);
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .overview-title { margin: 0; }
+
+  /* The reference sets this line in caps; caps need the tracking back or the
+     letters sit on top of each other at this size. */
+  .overview-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* This one was 26px tall — the smallest target in the app, and the one
+       that opens the switch every chart on the tab answers to. */
+    min-block-size: 2.75rem;
+    padding: var(--space-1) var(--space-2);
+    margin-inline-start: calc(var(--space-2) * -1);
+    background: none;
+    border: 0;
+    border-radius: var(--r-sm);
+    color: var(--ink-2);
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .overview-toggle:hover { background: var(--accent-wash); color: var(--ink); }
+
+  .overview-toggle .icon {
+    inline-size: 1rem;
+    block-size: 1rem;
+    transition: rotate var(--dur-2) var(--ease-out);
+  }
+
+  .overview-toggle[aria-expanded="true"] .icon { rotate: 180deg; }
+
+  .overview-note {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--ink-2);
+  }
+
+  /* -------------------------------------------------------- the panels -- */
+
+  /* `minmax(0, 1fr)` rather than a bare `1fr`: a grid item's automatic
+     minimum size is its min-content width, so in a column narrower than the
+     widest chart a panel would refuse to shrink and push a horizontal
+     scrollbar out of the side of the pane. Explicitly allowing zero is what
+     lets the charts inside actually respond to the room they have. */
+  .panels {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-block-end: var(--space-4);
+  }
+  .panel { min-inline-size: 0; }
+
+
+  .panel {
+    margin: 0;
+    padding: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-raise);
+  }
+
+  .panel-head { display: grid; gap: var(--space-1); margin-block-end: var(--space-3); }
+
+  .panel-title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  /* The takeaway. It is also half the SVG's accessible name, so it is written
+     as a sentence and never as a caption fragment. */
+  .panel-summary {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-body);
+    color: var(--ink-2);
+  }
+
+  /* Same reason as `.panels`: a grid item's automatic minimum is its
+     min-content width, so without an explicit zero the widest chart inside
+     sets a floor the panel cannot go below and the column scrolls sideways
+     instead of reflowing. Every grid on the way down needs it, not just the
+     outermost one. */
+  .panel-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+
+  .panel-empty {
+    margin: 0;
+    padding-block: var(--space-5);
+    text-align: center;
+    color: var(--ink-3);
+    font-size: var(--fs-sm);
+  }
+
+  .chart { inline-size: 100%; block-size: auto; display: block; overflow: visible; }
+
+  /* ---------------------------------------------------------- the ring -- */
+
+  .ring-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); justify-items: center; }
+
+  .donut { max-inline-size: 15rem; }
+
+  .donut-seg {
+    stroke: var(--surface);
+    stroke-width: 1;
+    transform-origin: 100px 100px;
+  }
+
+  /* The grouped slice says it is a group: a dashed edge, which survives
+     greyscale and does not depend on the fill at all. */
+  .donut-seg[data-other="true"] {
+    stroke-dasharray: 3 3;
+    stroke-width: 1.4;
+  }
+
+  /* The size comes from the string's length, set on the element — see the
+     note where it is drawn. */
+  .donut-total {
+    fill: var(--ink);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .donut-label {
+    fill: var(--ink-3);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+  }
+
+  /* ------------------------------------------------- the ranked list -- */
+
+  .rank { list-style: none; margin: 0; padding: 0; inline-size: 100%; }
+
+  .rank-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding-block: var(--space-2);
+  }
+
+  .rank-row + .rank-row,
+  .rank-sub > .rank-row { border-block-start: 1px solid var(--rule); }
+
+  .rank-chip { --chip-size: 2rem; }
+
+  .rank-swatch {
+    inline-size: 2rem;
+    block-size: 2rem;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    background: var(--slice, var(--ink-3));
+    color: var(--cat-glyph);
+    font-weight: 700;
+  }
+
+  .rank-main { flex: 1; min-inline-size: 0; display: grid; gap: 0.3rem; }
+
+  .rank-name {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The bar and the percentage together — the pair reads faster than either
+     alone, which is the only reason both are on the row. */
+  .rank-track {
+    block-size: 0.375rem;
+    border-radius: var(--r-pill);
+    background: var(--sunken);
+    overflow: hidden;
+  }
+
+  .rank-fill {
+    display: block;
+    block-size: 100%;
+    border-radius: var(--r-pill);
+    background: var(--slice, var(--ink-3));
+    transition: inline-size var(--dur-3) var(--ease-out);
+  }
+
+  .rank-figures { text-align: end; flex: none; }
+
+  .rank-amount {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .rank-share { margin: 0; font-size: var(--fs-2xs); color: var(--ink-2); }
+
+  /* "Other" is the one row that is a control. */
+  .rank-open {
+    display: flex;
+    align-items: center;
+    min-block-size: 2.75rem;
+    gap: var(--space-3);
+    inline-size: 100%;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--r-md);
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .rank-open:hover { background: var(--accent-wash); }
+
+  .rank-open > .icon {
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    color: var(--ink-3);
+    transition: rotate var(--dur-2) var(--ease-out);
+  }
+
+  .rank-open[aria-expanded="true"] > .icon { rotate: 180deg; }
+
+  .rank-sub {
+    list-style: none;
+    margin: 0;
+    padding-inline-start: var(--space-5);
+  }
+
+  .rank-row-sub .rank-chip { --chip-size: 1.5rem; }
+  .rank-row-sub .rank-name { font-weight: 500; color: var(--ink-2); }
+
+  /* ------------------------------------------------------- bar charts -- */
+
+  .grid-line { stroke: var(--rule); stroke-width: 1; }
+
+  /* Zero is not a gridline like the others: bars sit on it. */
+  .grid-zero { stroke: var(--rule-strong); stroke-width: 1.5; }
+
+  .axis-label {
+    fill: var(--ink-3);
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .axis-label.is-today { fill: var(--accent-text); font-weight: 700; }
+
+  /* Expense and income bars are ink, not red and green: the panel title and
+     its summary already say which is being drawn, and thirty-one red bars
+     say it a thirty-second time at the cost of the page. Only the net view
+     needs the sign in the mark, because only there can one chart hold both. */
+  .bar { fill: color-mix(in oklab, var(--ink) 62%, transparent); }
+
+  .bars[data-view="net"] .bar[data-tone="in"] { fill: var(--money-in); }
+  .bars[data-view="net"] .bar[data-tone="out"] { fill: var(--money-out); }
+
+  /* Today is marked by ink AND by its label, never by colour alone. */
+  .bar-today, .bars[data-view="net"] .bar-today { fill: var(--accent-text); }
+
+  .trend-line {
+    stroke: var(--ink);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 4 4;
+    opacity: 0.75;
+  }
+
+  .period-bar { fill: color-mix(in oklab, var(--ink) 34%, transparent); }
+  .period-bar.is-current { fill: var(--ink); }
+
+  .periods[data-view="net"] .period-bar[data-tone="in"] {
+    fill: color-mix(in oklab, var(--money-in), var(--surface) 34%);
+  }
+  .periods[data-view="net"] .period-bar[data-tone="out"] {
+    fill: color-mix(in oklab, var(--money-out), var(--surface) 34%);
+  }
+  .periods[data-view="net"] .period-bar.is-current[data-tone="in"] { fill: var(--money-in); }
+  .periods[data-view="net"] .period-bar.is-current[data-tone="out"] { fill: var(--money-out); }
+
+  .bar-value {
+    fill: var(--ink);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chart-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    font-size: var(--fs-2xs);
+    color: var(--ink-2);
+  }
+
+  .chart-key-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+  .key-swatch { inline-size: 0.875rem; block-size: 0.875rem; flex: none; }
+  .key-bar { background: color-mix(in oklab, var(--ink) 62%, transparent); border-radius: 1px; }
+  .key-bar-in { background: var(--money-in); }
+  .key-bar-out { background: var(--money-out); }
+  .key-line {
+    block-size: 0;
+    border-block-start: 2px dashed var(--ink);
+    opacity: 0.75;
+  }
+
+  /* --------------------------------------------------- mean vs median -- */
+
+  .figure-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+  }
+
+  .figure-cell {
+    padding: var(--space-3);
+    background: var(--sunken);
+    border-radius: var(--r-md);
+    text-align: center;
+  }
+
+  .figure-label {
+    margin: 0;
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    letter-spacing: var(--track-caps);
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .figure-value {
+    margin: var(--space-1) 0 0;
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .figure-note { margin: 0; font-size: var(--fs-2xs); color: var(--ink-3); }
+
+  .figure-explainer {
+    margin: 0;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-body);
+    color: var(--ink-2);
+  }
+
+  /* ------------------------------------------------------------ motion -- */
+
+  /* No `backwards` fill and no stagger, and both omissions are deliberate.
+     A fill of `backwards` makes the resting state of a mark invisible until
+     its animation runs, and a document that is not producing frames — hidden,
+     throttled, driven headlessly — never runs it. The chart would then be
+     blank rather than merely undecorated. That is the same failure the
+     view-transition watchdog in app.js exists for: motion may decorate a
+     drawing, and may never be the thing that makes it appear. */
+  @media (prefers-reduced-motion: no-preference) {
+    .panels .donut-seg { animation: slice-in var(--dur-4) var(--ease-out); }
+    .panels .bar,
+    .panels .period-bar {
+      animation: bar-in var(--dur-3) var(--ease-out);
+      transform-origin: 50% var(--bar-base, 100%);
+    }
+  }
+
+  @keyframes slice-in { from { opacity: 0; scale: 0.94; } }
+  @keyframes bar-in { from { scale: 1 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overview-toggle .icon,
+    .rank-open > .icon,
+    .rank-fill { transition: none; }
+  }
+
+  /* ================================================== the pane's own width --
+     A container query carries no specificity of its own, so these sit at the
+     end of the file deliberately: a rule inside one only wins over the base
+     rule it is narrowing because it comes after it. Placed higher up, every
+     block here would be silently overridden by the defaults below it — which
+     is exactly what happened the first time.
+
+     The question each one asks is how wide *the pane* is, never the window.
+     That is what makes the same panel work as the Analysis tab on a laptop
+     and as the narrow column beside the ledger on the same screen. */
+
+  /* Two-up once the pane can hold two readable charts. The ring keeps the
+     full width above them; it is the panel that earns the room. */
+  @container pane (min-width: 42rem) {
+    .panels { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+    .panels > .panel:first-child { grid-column: 1 / -1; }
+  }
+
+  /* The companion column. Every number, every label and every table
+     equivalent stays; what goes is the air around them and the side-by-side
+     pairing that no longer fits. */
+  @container pane (max-width: 24rem) {
+    .panel { padding: var(--space-3); }
+    .donut { max-inline-size: 11rem; }
+    .rank-chip, .rank-swatch { --chip-size: 1.5rem; inline-size: 1.5rem; block-size: 1.5rem; }
+    .figure-pair { grid-template-columns: minmax(0, 1fr); }
+
+    /* The figures drop under the name rather than competing with it for the
+       line. Truncating "Rent & Bills" to "R…" to keep an amount on the same
+       row loses the only thing that says what the amount is for. */
+    .rank-row { gap: var(--space-2); align-items: start; }
+    .rank-main { gap: 0.15rem; }
+    .rank-name { white-space: normal; overflow: visible; }
+    .rank-figures { flex: none; }
+  }
+}
